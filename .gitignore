@@ -1,0 +1,71 @@
+# 敏感数据和隐私信息
+server_management.db
+encryption.key
+servers.json
+servers.json.backup
+templates/index_*
+
+# 临时文件和缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache/
+
+# 开发环境文件
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 配置文件
+config.py
+
+# IDE配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+
+# 备份文件
+*.backup
+*.bak
+
+# 临时SSH密钥文件
+id_rsa*
+*.pem
+*.key
+
+# Flask实例文件夹
+instance/
+
+# 覆盖文件
+coverage.xml
+*.cover
+.hypothesis/
+.coverage
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员登录 - 服务器监控系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: hsl(216, 23%, 6%);
+            color: hsl(210, 40%, 98%);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: hsl(217, 19%, 12%);
+            border-radius: 16px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            border: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .login-header h1 {
+            color: hsl(142, 71%, 45%);
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .login-header p {
+            color: hsl(210, 20%, 75%);
+            font-size: 0.9rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: hsl(210, 40%, 98%);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            background: hsl(217, 19%, 20%);
+            border: 2px solid hsl(217, 19%, 25%);
+            border-radius: 8px;
+            color: hsl(210, 40%, 98%);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: hsl(142, 71%, 45%);
+            box-shadow: 0 0 0 3px hsla(142, 71%, 45%, 0.1);
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 0.8rem;
+            background: linear-gradient(135deg, hsl(142, 71%, 45%), hsl(142, 71%, 50%));
+            color: hsl(144, 100%, 8%);
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 1rem;
+        }
+
+        .login-btn:hover {
+            background: linear-gradient(135deg, hsl(142, 71%, 50%), hsl(142, 71%, 55%));
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px hsla(142, 71%, 45%, 0.3);
+        }
+
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-message {
+            background: hsla(0, 84%, 60%, 0.1);
+            border: 1px solid hsl(0, 84%, 60%);
+            color: hsl(0, 84%, 60%);
+            padding: 0.8rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .success-message {
+            background: hsla(120, 100%, 40%, 0.1);
+            border: 1px solid hsl(120, 100%, 40%);
+            color: hsl(120, 100%, 40%);
+            padding: 0.8rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 1.5rem;
+        }
+
+        .back-link a {
+            color: hsl(142, 71%, 45%);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+
+        .back-link a:hover {
+            color: hsl(142, 71%, 55%);
+        }
+
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid hsl(144, 100%, 8%);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .login-btn-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1><i class="fas fa-shield-alt"></i> 管理员登录</h1>
+            <p>服务器监控系统管理面板</p>
+        </div>
+
+        <form id="login-form">
+            <div id="error-message" class="error-message"></div>
+            <div id="success-message" class="success-message"></div>
+
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <button type="submit" class="login-btn" id="login-btn">
+                <div class="login-btn-content">
+                    <div class="loading-spinner" id="loading-spinner"></div>
+                    <span id="btn-text">登录</span>
+                </div>
+            </button>
+        </form>
+
+        <div class="back-link">
+            <a href="/"><i class="fas fa-arrow-left"></i> 返回主页</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('error-message');
+            const successDiv = document.getElementById('success-message');
+            const loginBtn = document.getElementById('login-btn');
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const btnText = document.getElementById('btn-text');
+            
+            // 隐藏消息
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+            
+            // 显示加载状态
+            loginBtn.disabled = true;
+            loadingSpinner.style.display = 'block';
+            btnText.textContent = '登录中...';
+            
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    successDiv.textContent = result.message;
+                    successDiv.style.display = 'block';
+                    
+                    // 登录成功，跳转到管理面板
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 1000);
+                } else {
+                    errorDiv.textContent = result.error;
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = '登录请求失败，请重试';
+                errorDiv.style.display = 'block';
+            } finally {
+                // 恢复按钮状态
+                loginBtn.disabled = false;
+                loadingSpinner.style.display = 'none';
+                btnText.textContent = '登录';
+            }
+        });
+
+        // 回车键登录
+        document.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('login-form').dispatchEvent(new Event('submit'));
+            }
+        });
+    </script>
+</body>
+</html>
