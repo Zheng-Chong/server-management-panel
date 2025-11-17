@@ -11,18 +11,29 @@ from database import DatabaseManager
 def main():
     print("🔄 初始化数据库...")
     
+    # 检查是否在 CI/CD 环境中运行
+    is_ci = os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+    
     # 检查数据库是否已存在
     if os.path.exists('server_management.db'):
         print("⚠️  数据库文件已存在")
-        overwrite = input("是否要重新初始化数据库？这将删除所有现有数据 (y/N): ")
+        
+        # 在 CI/CD 环境中自动覆盖，否则询问用户
+        if is_ci:
+            print("🔧 CI/CD 环境检测到，自动覆盖现有数据库")
+            overwrite = 'y'
+        else:
+            overwrite = input("是否要重新初始化数据库？这将删除所有现有数据 (y/N): ")
+        
         if not overwrite.lower().startswith('y'):
             print("❌ 取消初始化")
             return False
         
-        # 备份现有数据库
-        import shutil
-        shutil.copy2('server_management.db', 'server_management.db.backup')
-        print("📋 已备份现有数据库到 server_management.db.backup")
+        # 备份现有数据库（仅在非 CI/CD 环境中）
+        if not is_ci:
+            import shutil
+            shutil.copy2('server_management.db', 'server_management.db.backup')
+            print("📋 已备份现有数据库到 server_management.db.backup")
         
         # 删除现有数据库和密钥
         os.remove('server_management.db')
