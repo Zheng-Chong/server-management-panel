@@ -34,7 +34,7 @@ def main():
     
     # 初始化数据库
     print("📊 创建数据库表...")
-    db.init_db()
+    db.init_database()
     
     # 创建默认管理员用户
     print("👤 创建默认管理员用户...")
