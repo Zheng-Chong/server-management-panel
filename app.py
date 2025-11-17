@@ -9,6 +9,7 @@ import re
 import secrets
 import hashlib
 from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from database import DatabaseManager
 
 app = Flask(__name__)
@@ -87,14 +88,53 @@ def get_server_status(server):
     
     return status
 
+def update_single_server(server):
+    """更新单个服务器状态（用于并发执行）"""
+    try:
+        status = get_server_status(server)
+        return (server['name'], status)
+    except Exception as e:
+        # 如果更新失败，返回错误状态
+        return (server['name'], {
+            'name': server['name'],
+            'ip': server['ip'],
+            'port': server.get('port', 22),
+            'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
+            'disk_usage': f'Error: {str(e)}',
+            'gpu_status': f'Error: {str(e)}'
+        })
+
 def update_all_servers():
     global server_status
     
-    while True:
-        servers = load_servers()  # 每次循环重新加载服务器列表
-        for server in servers:
-            server_status[server['name']] = get_server_status(server)
-        time.sleep(30)  # 每30秒更新一次
+    # 创建线程池（最多10个并发线程，在循环外创建以提高效率）
+    executor = ThreadPoolExecutor(max_workers=10)
+    
+    try:
+        while True:
+            servers = load_servers()  # 每次循环重新加载服务器列表
+            current_server_names = {server['name'] for server in servers}
+            
+            # 清理已删除的服务器状态
+            for server_name in list(server_status.keys()):
+                if server_name not in current_server_names:
+                    del server_status[server_name]
+            
+            # 并发更新所有服务器状态
+            future_to_server = {executor.submit(update_single_server, server): server for server in servers}
+            
+            # 收集更新结果
+            for future in as_completed(future_to_server):
+                try:
+                    server_name, status = future.result()
+                    server_status[server_name] = status
+                except Exception as e:
+                    server = future_to_server[future]
+                    print(f"更新服务器 {server['name']} 时发生错误: {str(e)}")
+            
+            time.sleep(30)  # 每30秒更新一次
+    finally:
+        executor.shutdown(wait=True)
 
 @app.route('/')
 def index():
@@ -247,7 +287,7 @@ def create_user_on_server(server, username, admin_password):
             f'echo "{admin_password}" | sudo -S -u {username} cp /home/{username}/.ssh/id_rsa.pub /home/{username}/.ssh/authorized_keys',
             f'echo "{admin_password}" | sudo -S chmod 600 /home/{username}/.ssh/authorized_keys',
             f'echo "{admin_password}" | sudo -S chown {username}:{username} /home/{username}/.ssh/authorized_keys',
-            f'echo "{admin_password}\\n{username}" | sudo -S passwd {username}'
+            f'echo "{admin_password}" | sudo -S bash -c "echo \'{username}:{username}\' | chpasswd"'  # 正确的密码设置方式
         ]
         
         results = []
@@ -282,19 +322,25 @@ def create_user():
     username = data.get('username')
     auth_code = data.get('auth_code')
     
-    # 验证授权码
-    if not verify_auth_code(auth_code):
-        return jsonify({'success': False, 'error': '授权码无效或已过期'})
-    
-    # 立即删除授权码（单次有效）
-    if auth_code in auth_codes:
-        del auth_codes[auth_code]
-    
     # 查找服务器配置
     server = db.get_server_by_name(server_name)
     
     if not server:
         return jsonify({'success': False, 'error': '服务器未找到'})
+    
+    # 检查是否设置了专用密码
+    if server.get('dedicated_password'):
+        # 如果设置了专用密码，验证输入的授权码是否等于专用密码
+        if auth_code != server.get('dedicated_password'):
+            return jsonify({'success': False, 'error': '专用密码错误'})
+    else:
+        # 如果没有设置专用密码，使用正常的授权码验证
+        if not verify_auth_code(auth_code):
+            return jsonify({'success': False, 'error': '授权码无效或已过期'})
+        
+        # 立即删除授权码（单次有效）
+        if auth_code in auth_codes:
+            del auth_codes[auth_code]
     
     # 验证用户名格式
     if not re.match(r'^[a-zA-Z][a-zA-Z0-9_-]{0,31}$', username):
@@ -510,8 +556,8 @@ def manage_sudo():
             stdin, stdout, stderr = ssh.exec_command(f'sudo usermod -a -G sudo {username}')
             action_text = '授予'
         else:
-            # 移除sudo权限：从sudo组移除用户
-            stdin, stdout, stderr = ssh.exec_command(f'sudo gpasswd -d {username} sudo')
+            # 移除sudo权限：使用更可靠的方法
+            stdin, stdout, stderr = ssh.exec_command(f'sudo deluser {username} sudo 2>/dev/null || sudo gpasswd -d {username} sudo')
             action_text = '移除'
         
         output = stdout.read().decode('utf-8')
@@ -549,6 +595,7 @@ def add_server():
     password = data.get('password')
     port = data.get('port', 22)
     description = data.get('description', '')
+    dedicated_password = data.get('dedicated_password')
     
     # 验证必填字段
     if not all([name, ip, username, password]):
@@ -563,7 +610,7 @@ def add_server():
     if not isinstance(port, int) or port < 1 or port > 65535:
         return jsonify({'success': False, 'error': '端口号必须在1-65535之间'})
     
-    success, message = db.add_server(name, ip, port, username, password, description)
+    success, message = db.add_server(name, ip, port, username, password, description, dedicated_password)
     return jsonify({'success': success, 'message': message if success else message})
 
 @app.route('/api/admin/servers/<int:server_id>', methods=['PUT'])
@@ -591,7 +638,8 @@ def update_server(server_id):
         port=data.get('port'),
         username=data.get('username'),
         password=data.get('password'),
-        description=data.get('description')
+        description=data.get('description'),
+        dedicated_password=data.get('dedicated_password')
     )
     
     return jsonify({'success': success, 'message': message})
@@ -748,27 +796,54 @@ def manage_server_user_sudo(server_name, username):
         )
         
         if action == 'grant':
-            # 授予sudo权限：将用户添加到sudo组
-            stdin, stdout, stderr = ssh.exec_command(f'sudo usermod -a -G sudo {username}')
+            # 授予sudo权限：将用户添加到sudo组，同时设置密码为用户名
+            commands = [
+                f'sudo usermod -a -G sudo {username}',
+                f'echo "{username}:{username}" | sudo chpasswd'  # 使用chpasswd设置密码
+            ]
             action_text = '授予'
+            
+            # 执行所有命令
+            all_success = True
+            error_messages = []
+            
+            for cmd in commands:
+                stdin, stdout, stderr = ssh.exec_command(cmd)
+                output = stdout.read().decode('utf-8')
+                error = stderr.read().decode('utf-8')
+                
+                if error and 'does not exist' in error:
+                    ssh.close()
+                    return jsonify({'success': False, 'error': '用户不存在'})
+                elif error and 'chpasswd' not in cmd:  # 非密码设置命令的错误
+                    all_success = False
+                    error_messages.append(error)
+            
+            ssh.close()
+            
+            if all_success:
+                return jsonify({'success': True, 'message': f'成功{action_text}用户 {username} 的sudo权限并设置密码为用户名'})
+            else:
+                return jsonify({'success': True, 'message': f'成功{action_text}用户 {username} 的sudo权限，但密码设置可能失败'})
+                
         else:
-            # 移除sudo权限：从sudo组移除用户
-            stdin, stdout, stderr = ssh.exec_command(f'sudo gpasswd -d {username} sudo')
+            # 移除sudo权限：使用更可靠的方法
+            stdin, stdout, stderr = ssh.exec_command(f'sudo deluser {username} sudo 2>/dev/null || sudo gpasswd -d {username} sudo')
             action_text = '移除'
-        
-        output = stdout.read().decode('utf-8')
-        error = stderr.read().decode('utf-8')
-        
-        ssh.close()
-        
-        if error and 'does not exist' in error:
-            return jsonify({'success': False, 'error': '用户不存在'})
-        elif error and 'not a member' in error:
-            return jsonify({'success': False, 'error': '用户不在sudo组中'})
-        elif error:
-            return jsonify({'success': False, 'error': f'操作失败: {error}'})
-        else:
-            return jsonify({'success': True, 'message': f'成功{action_text}用户 {username} 的sudo权限'})
+            
+            output = stdout.read().decode('utf-8')
+            error = stderr.read().decode('utf-8')
+            
+            ssh.close()
+            
+            if error and 'does not exist' in error:
+                return jsonify({'success': False, 'error': '用户不存在'})
+            elif error and 'not a member' in error:
+                return jsonify({'success': False, 'error': '用户不在sudo组中'})
+            elif error:
+                return jsonify({'success': False, 'error': f'操作失败: {error}'})
+            else:
+                return jsonify({'success': True, 'message': f'成功{action_text}用户 {username} 的sudo权限'})
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'连接服务器失败: {str(e)}'})

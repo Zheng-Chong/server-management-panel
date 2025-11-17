@@ -182,8 +182,22 @@
             padding-bottom: 8px;
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 8px;
             border-bottom: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .status-title-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-timestamp {
+            font-size: 0.75em;
+            font-weight: 400;
+            color: hsl(210, 20%, 65%);
+            white-space: nowrap;
         }
 
         .disk-usage {
@@ -536,8 +550,8 @@
                         <input type="text" id="target-server-display" readonly style="background: hsl(217, 19%, 10%); color: hsl(210, 40%, 98%);">
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-ticket-alt"></i> 授权码:</label>
-                        <input type="text" id="modal-auth-code" placeholder="请输入管理员提供的授权码">
+                        <label><i class="fas fa-ticket-alt"></i> 授权码/专用密码:</label>
+                        <input type="text" id="modal-auth-code" placeholder="请输入管理员提供的授权码或专用密码">
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-user"></i> 用户名:</label>
@@ -825,7 +839,10 @@
 
                         <div class="status-section">
                             <div class="status-title">
-                                <i class="fas fa-hdd"></i> 磁盘使用情况
+                                <div class="status-title-left">
+                                    <i class="fas fa-hdd"></i> 磁盘使用情况
+                                </div>
+                                <span class="status-timestamp">${status.timestamp}</span>
                             </div>
                             <div class="disk-usage">
                                 ${diskData.map(disk => {
@@ -852,7 +869,10 @@
 
                         <div class="status-section">
                             <div class="status-title">
-                                <i class="fas fa-microchip"></i> GPU 状态
+                                <div class="status-title-left">
+                                    <i class="fas fa-microchip"></i> GPU 状态
+                                </div>
+                                <span class="status-timestamp">${status.timestamp}</span>
                             </div>
                             <div class="gpu-container">
                                 ${gpuData.length > 0 ? formatGPUDisplay(gpuData) : parseAnsiColors(status.gpu_status)}

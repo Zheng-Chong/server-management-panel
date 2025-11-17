@@ -502,7 +502,15 @@
 
                 <div class="form-group">
                     <label for="server-password">密码 *</label>
-                    <input type="password" id="server-password" required>
+                    <input type="text" id="server-password" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-dedicated-password">专用密码</label>
+                    <input type="text" id="server-dedicated-password" placeholder="设置后只能使用此密码创建用户">
+                    <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
+                        设置专用密码后，用户需要在授权码输入框中输入此专用密码来创建用户
+                    </small>
                 </div>
 
                 <div class="form-group">
@@ -742,6 +750,7 @@
             document.getElementById('submit-btn').innerHTML = '<i class="fas fa-save"></i> 添加';
             document.getElementById('server-form').reset();
             document.getElementById('server-port').value = '22';
+            document.getElementById('server-dedicated-password').value = '';
             document.getElementById('server-modal').style.display = 'flex';
         }
 
@@ -760,6 +769,7 @@
             document.getElementById('server-port').value = server.port;
             document.getElementById('server-username').value = server.username;
             document.getElementById('server-password').value = server.password;
+            document.getElementById('server-dedicated-password').value = server.dedicated_password || '';
             document.getElementById('server-description').value = server.description || '';
             
             document.getElementById('server-modal').style.display = 'flex';
@@ -781,7 +791,8 @@
                 port: parseInt(document.getElementById('server-port').value),
                 username: document.getElementById('server-username').value,
                 password: document.getElementById('server-password').value,
-                description: document.getElementById('server-description').value
+                description: document.getElementById('server-description').value,
+                dedicated_password: document.getElementById('server-dedicated-password').value
             };
 
             try {
@@ -1145,8 +1156,13 @@
         // 管理sudo权限
         async function manageSudo(username, action) {
             const actionText = action === 'grant' ? '授予' : '移除';
+            let confirmMessage = `确定要${actionText}用户 "${username}" 的sudo权限吗？`;
             
-            if (!confirm(`确定要${actionText}用户 "${username}" 的sudo权限吗？`)) {
+            if (action === 'grant') {
+                confirmMessage += `\n\n注意：授予sudo权限的同时，系统会自动将用户密码设置为用户名 "${username}"。`;
+            }
+            
+            if (!confirm(confirmMessage)) {
                 return;
             }
 

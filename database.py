@@ -34,6 +34,16 @@ class DatabaseManager:
             encrypted_data = encrypted_data.encode('utf-8')
         return self.fernet.decrypt(encrypted_data).decode('utf-8')
     
+    def _safe_decrypt(self, data):
+        """安全解密，如果解密失败则返回原数据"""
+        if not data:
+            return None
+        try:
+            return self.decrypt_data(data)
+        except:
+            # 如果解密失败，可能是明文数据，直接返回
+            return data
+    
     def init_database(self):
         """初始化数据库表"""
         with sqlite3.connect(self.db_path) as conn:
@@ -48,6 +58,7 @@ class DatabaseManager:
                     port INTEGER DEFAULT 22,
                     username TEXT NOT NULL,
                     password TEXT NOT NULL,
+                    dedicated_password TEXT,
                     description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -66,20 +77,19 @@ class DatabaseManager:
             
             conn.commit()
     
-    def add_server(self, name, ip, port, username, password, description=''):
+    def add_server(self, name, ip, port, username, password, description='', dedicated_password=None):
         """添加服务器"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # 加密敏感信息
+                # 只加密用户名，密码和专用密码明文存储
                 encrypted_username = self.encrypt_data(username)
-                encrypted_password = self.encrypt_data(password)
                 
                 cursor.execute('''
-                    INSERT INTO servers (name, ip, port, username, password, description)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (name, ip, port, encrypted_username, encrypted_password, description))
+                    INSERT INTO servers (name, ip, port, username, password, dedicated_password, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (name, ip, port, encrypted_username, password, dedicated_password, description))
                 
                 conn.commit()
                 return True, "服务器添加成功"
@@ -104,10 +114,11 @@ class DatabaseManager:
                         'ip': row[2],
                         'port': row[3],
                         'username': self.decrypt_data(row[4]),
-                        'password': self.decrypt_data(row[5]),
+                        'password': row[5],  # 明文存储，直接返回
                         'description': row[6],
                         'created_at': row[7],
-                        'updated_at': row[8]
+                        'updated_at': row[8],
+                        'dedicated_password': row[9] if row[9] else None,  # 明文存储，直接返回
                     }
                     servers.append(server)
                 
@@ -131,17 +142,18 @@ class DatabaseManager:
                         'ip': row[2],
                         'port': row[3],
                         'username': self.decrypt_data(row[4]),
-                        'password': self.decrypt_data(row[5]),
+                        'password': row[5],  # 明文存储，直接返回
                         'description': row[6],
                         'created_at': row[7],
-                        'updated_at': row[8]
+                        'updated_at': row[8],
+                        'dedicated_password': row[9] if row[9] else None,  # 明文存储，直接返回
                     }
                 return None
         except Exception as e:
             print(f"获取服务器失败: {str(e)}")
             return None
     
-    def update_server(self, server_id, name=None, ip=None, port=None, username=None, password=None, description=None):
+    def update_server(self, server_id, name=None, ip=None, port=None, username=None, password=None, description=None, dedicated_password=None):
         """更新服务器信息"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -169,7 +181,14 @@ class DatabaseManager:
                 
                 if password is not None:
                     update_fields.append('password = ?')
-                    values.append(self.encrypt_data(password))
+                    values.append(password)  # 明文存储
+                
+                if dedicated_password is not None:
+                    if dedicated_password == '':
+                        update_fields.append('dedicated_password = NULL')
+                    else:
+                        update_fields.append('dedicated_password = ?')
+                        values.append(dedicated_password)  # 明文存储
                 
                 if description is not None:
                     update_fields.append('description = ?')
@@ -231,7 +250,8 @@ class DatabaseManager:
                     port=server.get('port', 22),
                     username=server.get('username', ''),
                     password=server.get('password', ''),
-                    description=server.get('description', '')
+                    description=server.get('description', ''),
+                    dedicated_password=server.get('dedicated_password')
                 )
                 
                 if success:
