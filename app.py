@@ -82,6 +82,20 @@ def get_server_status(server):
     disk_output = execute_ssh_command(server, 'df -h')
     status['disk_usage'] = disk_output
     
+    # 检查并安装 gpustat（如果未安装）
+    check_cmd = 'gpustat --version 2>&1 || which gpustat 2>&1 || command -v gpustat 2>&1'
+    check_output = execute_ssh_command(server, check_cmd)
+    
+    # 如果检查失败（没有找到 gpustat），尝试安装
+    if not check_output.strip() or ('not found' in check_output.lower() or 'command not found' in check_output.lower()):
+        # gpustat 未安装，尝试使用 pip 安装
+        install_cmd = 'pip install gpustat 2>&1 || pip3 install gpustat 2>&1 || python -m pip install gpustat 2>&1 || python3 -m pip install gpustat 2>&1'
+        install_output = execute_ssh_command(server, install_cmd)
+        # 如果安装失败，记录错误信息
+        if 'successfully' not in install_output.lower() and ('error' in install_output.lower() or 'permission denied' in install_output.lower()):
+            status['gpu_status'] = f'安装 gpustat 失败: {install_output}'
+            return status
+    
     # 获取GPU状态
     gpu_output = execute_ssh_command(server, 'gpustat')
     status['gpu_status'] = gpu_output
