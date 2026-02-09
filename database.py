@@ -72,6 +72,10 @@ class DatabaseManager:
             if 'private_key' not in columns:
                 cursor.execute('ALTER TABLE servers ADD COLUMN private_key TEXT')
             
+            # 检查并添加server_group字段（如果不存在）
+            if 'server_group' not in columns:
+                cursor.execute('ALTER TABLE servers ADD COLUMN server_group TEXT DEFAULT ""')
+            
             # 创建管理员表
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS admin_users (
@@ -84,7 +88,7 @@ class DatabaseManager:
             
             conn.commit()
     
-    def add_server(self, name, ip, port, username, password=None, description='', dedicated_password=None, private_key=None):
+    def add_server(self, name, ip, port, username, password=None, description='', dedicated_password=None, private_key=None, group=''):
         """添加服务器"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -99,9 +103,9 @@ class DatabaseManager:
                 encrypted_key = self.encrypt_data(private_key) if private_key else None
                 
                 cursor.execute('''
-                    INSERT INTO servers (name, ip, port, username, password, private_key, dedicated_password, description)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (name, ip, port, encrypted_username, password, encrypted_key, dedicated_password, description))
+                    INSERT INTO servers (name, ip, port, username, password, private_key, dedicated_password, description, server_group)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (name, ip, port, encrypted_username, password, encrypted_key, dedicated_password, description, group))
                 
                 conn.commit()
                 return True, "服务器添加成功"
@@ -115,14 +119,15 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM servers ORDER BY name')
+                # 明确指定列名，确保server_group字段被正确读取
+                cursor.execute('SELECT id, name, ip, port, username, password, description, created_at, updated_at, dedicated_password, private_key, server_group FROM servers ORDER BY name')
                 rows = cursor.fetchall()
                 
                 servers = []
                 for row in rows:
-                    # 兼容旧数据结构（没有private_key字段）
+                    # 兼容旧数据结构（没有private_key和group字段）
                     row_list = list(row)
-                    while len(row_list) < 11:
+                    while len(row_list) < 12:
                         row_list.append(None)
                     
                     server = {
@@ -137,6 +142,7 @@ class DatabaseManager:
                         'updated_at': row_list[8] if len(row_list) > 8 else None,
                         'dedicated_password': row_list[9] if len(row_list) > 9 and row_list[9] else None,  # 明文存储，直接返回
                         'private_key': self._safe_decrypt(row_list[10]) if len(row_list) > 10 and row_list[10] else None,  # 加密存储，需要解密
+                        'group': row_list[11] if len(row_list) > 11 and row_list[11] else '',  # 分组字段
                     }
                     servers.append(server)
                 
@@ -150,13 +156,14 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM servers WHERE name = ?', (name,))
+                # 明确指定列名，确保server_group字段被正确读取
+                cursor.execute('SELECT id, name, ip, port, username, password, description, created_at, updated_at, dedicated_password, private_key, server_group FROM servers WHERE name = ?', (name,))
                 row = cursor.fetchone()
                 
                 if row:
-                    # 兼容旧数据结构（没有private_key字段）
+                    # 兼容旧数据结构（没有private_key和group字段）
                     row_list = list(row)
-                    while len(row_list) < 11:
+                    while len(row_list) < 12:
                         row_list.append(None)
                     
                     return {
@@ -171,13 +178,14 @@ class DatabaseManager:
                         'updated_at': row_list[8] if len(row_list) > 8 else None,
                         'dedicated_password': row_list[9] if len(row_list) > 9 and row_list[9] else None,  # 明文存储，直接返回
                         'private_key': self._safe_decrypt(row_list[10]) if len(row_list) > 10 and row_list[10] else None,  # 加密存储，需要解密
+                        'group': row_list[11] if len(row_list) > 11 and row_list[11] else '',  # 分组字段
                     }
                 return None
         except Exception as e:
             print(f"获取服务器失败: {str(e)}")
             return None
     
-    def update_server(self, server_id, name=None, ip=None, port=None, username=None, password=None, description=None, dedicated_password=None, private_key=None):
+    def update_server(self, server_id, name=None, ip=None, port=None, username=None, password=None, description=None, dedicated_password=None, private_key=None, group=None):
         """更新服务器信息"""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -229,6 +237,10 @@ class DatabaseManager:
                 if description is not None:
                     update_fields.append('description = ?')
                     values.append(description)
+                
+                if group is not None:
+                    update_fields.append('server_group = ?')
+                    values.append(group)
                 
                 update_fields.append('updated_at = CURRENT_TIMESTAMP')
                 values.append(server_id)

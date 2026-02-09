@@ -1,6 +1,7 @@
 from flask import Flask, render_template, jsonify, request, send_file, session, redirect, url_for
 import json
 import paramiko
+from paramiko.ssh_exception import SSHException
 import time
 import threading
 import os
@@ -45,64 +46,83 @@ def load_servers():
     """从数据库加载服务器列表"""
     return db.get_all_servers()
 
-def connect_ssh(server):
-    """统一的SSH连接函数，支持密钥和密码两种方式"""
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+def connect_ssh(server, max_retries=3, delay=5):
+    """统一的SSH连接函数，支持密钥和密码两种方式，带重试机制"""
+    last_exception = None
     
-    # 支持密钥和密码两种登录方式
-    if server.get('private_key'):
-        # 使用密钥登录
+    for attempt in range(max_retries):
         try:
-            # 尝试从字符串创建密钥对象（RSA格式）
-            private_key_obj = paramiko.RSAKey.from_private_key(
-                file_obj=io.StringIO(server['private_key'])
-            )
-            ssh.connect(
-                hostname=server['ip'],
-                port=server.get('port', 22),
-                username=server['username'],
-                pkey=private_key_obj,
-                timeout=10
-            )
-        except Exception:
-            # 如果RSA密钥失败，尝试Ed25519格式
-            try:
-                private_key_obj = paramiko.Ed25519Key.from_private_key(
-                    file_obj=io.StringIO(server['private_key'])
-                )
-                ssh.connect(
-                    hostname=server['ip'],
-                    port=server.get('port', 22),
-                    username=server['username'],
-                    pkey=private_key_obj,
-                    timeout=10
-                )
-            except Exception:
-                # 如果都失败，尝试使用密码（如果存在）
-                if server.get('password'):
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            # 支持密钥和密码两种登录方式
+            if server.get('private_key'):
+                # 使用密钥登录
+                try:
+                    # 尝试从字符串创建密钥对象（RSA格式）
+                    private_key_obj = paramiko.RSAKey.from_private_key(
+                        file_obj=io.StringIO(server['private_key'])
+                    )
                     ssh.connect(
                         hostname=server['ip'],
                         port=server.get('port', 22),
                         username=server['username'],
-                        password=server['password'],
+                        pkey=private_key_obj,
                         timeout=10
                     )
-                else:
-                    raise Exception("密钥格式错误且未提供密码")
-    elif server.get('password'):
-        # 使用密码登录
-        ssh.connect(
-            hostname=server['ip'],
-            port=server.get('port', 22),
-            username=server['username'],
-            password=server['password'],
-            timeout=10
-        )
-    else:
-        raise Exception("服务器配置错误：密码和密钥至少需要提供一个")
+                except Exception:
+                    # 如果RSA密钥失败，尝试Ed25519格式
+                    try:
+                        private_key_obj = paramiko.Ed25519Key.from_private_key(
+                            file_obj=io.StringIO(server['private_key'])
+                        )
+                        ssh.connect(
+                            hostname=server['ip'],
+                            port=server.get('port', 22),
+                            username=server['username'],
+                            pkey=private_key_obj,
+                            timeout=10
+                        )
+                    except Exception:
+                        # 如果都失败，尝试使用密码（如果存在）
+                        if server.get('password'):
+                            ssh.connect(
+                                hostname=server['ip'],
+                                port=server.get('port', 22),
+                                username=server['username'],
+                                password=server['password'],
+                                timeout=10
+                            )
+                        else:
+                            raise Exception("密钥格式错误且未提供密码")
+            elif server.get('password'):
+                # 使用密码登录
+                ssh.connect(
+                    hostname=server['ip'],
+                    port=server.get('port', 22),
+                    username=server['username'],
+                    password=server['password'],
+                    timeout=10
+                )
+            else:
+                raise Exception("服务器配置错误：密码和密钥至少需要提供一个")
+            
+            # 连接成功，返回SSH客户端
+            return ssh
+            
+        except (SSHException, EOFError) as e:
+            last_exception = e
+            if attempt < max_retries - 1:
+                print(f"SSH连接失败 ({str(e)}), 正在进行第 {attempt + 1}/{max_retries} 次重试... (服务器: {server.get('name', server.get('ip'))})")
+                time.sleep(delay)
+            else:
+                print(f"SSH连接失败，已达到最大重试次数 ({max_retries}次) (服务器: {server.get('name', server.get('ip'))})")
+        except Exception as e:
+            # 对于其他类型的异常（如配置错误），不进行重试，直接抛出
+            raise e
     
-    return ssh
+    # 如果所有重试都失败，抛出最后一个异常
+    raise Exception(f"SSH连接失败，已达到最大重试次数 ({max_retries}次): {str(last_exception)}")
 
 def execute_ssh_command(server, command):
     try:
@@ -622,6 +642,7 @@ def add_server():
     port = data.get('port', 22)
     description = data.get('description', '')
     dedicated_password = data.get('dedicated_password')
+    group = data.get('group', '')
     
     # 验证必填字段
     if not all([name, ip, username]):
@@ -640,7 +661,7 @@ def add_server():
     if not isinstance(port, int) or port < 1 or port > 65535:
         return jsonify({'success': False, 'error': '端口号必须在1-65535之间'})
     
-    success, message = db.add_server(name, ip, port, username, password, description, dedicated_password, private_key)
+    success, message = db.add_server(name, ip, port, username, password, description, dedicated_password, private_key, group)
     return jsonify({'success': success, 'message': message if success else message})
 
 @app.route('/api/admin/servers/<int:server_id>', methods=['PUT'])
@@ -670,7 +691,8 @@ def update_server(server_id):
         password=data.get('password'),
         private_key=data.get('private_key'),
         description=data.get('description'),
-        dedicated_password=data.get('dedicated_password')
+        dedicated_password=data.get('dedicated_password'),
+        group=data.get('group')
     )
     
     return jsonify({'success': success, 'message': message})

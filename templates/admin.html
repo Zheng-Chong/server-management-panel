@@ -198,6 +198,77 @@
             background: hsl(217, 19%, 15%);
         }
 
+        /* 分组样式 */
+        .server-group {
+            margin-bottom: 1.5rem;
+            background: hsl(217, 19%, 10%);
+            border-radius: 12px;
+            border: 1px solid hsl(217, 19%, 20%);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .server-group:hover {
+            border-color: hsl(217, 19%, 30%);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: hsl(217, 19%, 15%);
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+            cursor: pointer;
+            transition: background 0.3s ease;
+            user-select: none;
+        }
+
+        .group-header:hover {
+            background: hsl(217, 19%, 18%);
+        }
+
+        .group-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex: 1;
+        }
+
+        .group-toggle-icon {
+            color: hsl(142, 71%, 45%);
+            font-size: 0.9rem;
+            transition: transform 0.3s ease;
+        }
+
+        .group-title {
+            color: hsl(142, 71%, 45%);
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .group-count {
+            color: hsl(210, 20%, 75%);
+            font-size: 0.9rem;
+            font-weight: normal;
+        }
+
+        .group-content {
+            padding: 0;
+            transition: all 0.3s ease;
+        }
+
+        .group-content .server-table {
+            margin: 0;
+            border-radius: 0;
+        }
+
+        .group-content .server-table thead th {
+            background: hsl(217, 19%, 12%);
+        }
+
         .action-buttons {
             display: flex;
             gap: 0.5rem;
@@ -529,6 +600,14 @@
                     <textarea id="server-description" placeholder="可选的服务器描述"></textarea>
                 </div>
 
+                <div class="form-group">
+                    <label for="server-group">分组</label>
+                    <input type="text" id="server-group" placeholder="服务器分组（可选，留空则显示在默认组）">
+                    <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
+                        用于对服务器进行分类管理，相同分组的服务器会显示在一起
+                    </small>
+                </div>
+
                 <div class="form-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeServerModal()">取消</button>
                     <button type="submit" class="btn btn-primary" id="submit-btn">
@@ -710,48 +789,93 @@
                 return;
             }
 
-            const tableHTML = `
-                <table class="server-table">
-                    <thead>
-                        <tr>
-                            <th>名称</th>
-                            <th>IP地址</th>
-                            <th>端口</th>
-                            <th>用户名</th>
-                            <th>描述</th>
-                            <th>创建时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${servers.map(server => `
-                            <tr>
-                                <td><strong>${server.name}</strong></td>
-                                <td>${server.ip}</td>
-                                <td>${server.port}</td>
-                                <td>${server.username}</td>
-                                <td>${server.description || '-'}</td>
-                                <td>${new Date(server.created_at).toLocaleDateString()}</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <button class="btn btn-secondary btn-small" onclick="editServer(${server.id})">
-                                            <i class="fas fa-edit"></i> 编辑
-                                        </button>
-                                        <button class="btn btn-secondary btn-small" onclick="manageServerUsers('${server.name}')">
-                                            <i class="fas fa-users"></i> 用户
-                                        </button>
-                                        <button class="btn btn-danger btn-small" onclick="deleteServer(${server.id}, '${server.name}')">
-                                            <i class="fas fa-trash"></i> 删除
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+            // 按组分类服务器
+            const groupedServers = {};
+            servers.forEach(server => {
+                const groupName = server.group || '默认分组';
+                if (!groupedServers[groupName]) {
+                    groupedServers[groupName] = [];
+                }
+                groupedServers[groupName].push(server);
+            });
 
-            container.innerHTML = tableHTML;
+            // 生成HTML
+            let html = '';
+            const groupNames = Object.keys(groupedServers).sort();
+            
+            groupNames.forEach((groupName, groupIndex) => {
+                const groupServers = groupedServers[groupName];
+                const groupId = `group-${groupIndex}`;
+                const isCollapsed = localStorage.getItem(`group-${groupName}-collapsed`) === 'true';
+                
+                html += `
+                    <div class="server-group" data-group="${groupName}">
+                        <div class="group-header" onclick="toggleGroup('${groupName}')">
+                            <div class="group-header-left">
+                                <i class="fas fa-chevron-${isCollapsed ? 'right' : 'down'} group-toggle-icon"></i>
+                                <h3 class="group-title">${groupName}</h3>
+                                <span class="group-count">(${groupServers.length})</span>
+                            </div>
+                        </div>
+                        <div class="group-content" id="${groupId}" style="display: ${isCollapsed ? 'none' : 'block'}">
+                            <table class="server-table">
+                                <thead>
+                                    <tr>
+                                        <th>名称</th>
+                                        <th>IP地址</th>
+                                        <th>端口</th>
+                                        <th>用户名</th>
+                                        <th>描述</th>
+                                        <th>创建时间</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${groupServers.map(server => `
+                                        <tr>
+                                            <td><strong>${server.name}</strong></td>
+                                            <td>${server.ip}</td>
+                                            <td>${server.port}</td>
+                                            <td>${server.username}</td>
+                                            <td>${server.description || '-'}</td>
+                                            <td>${new Date(server.created_at).toLocaleDateString()}</td>
+                                            <td>
+                                                <div class="action-buttons">
+                                                    <button class="btn btn-secondary btn-small" onclick="editServer(${server.id})">
+                                                        <i class="fas fa-edit"></i> 编辑
+                                                    </button>
+                                                    <button class="btn btn-secondary btn-small" onclick="manageServerUsers('${server.name}')">
+                                                        <i class="fas fa-users"></i> 用户
+                                                    </button>
+                                                    <button class="btn btn-danger btn-small" onclick="deleteServer(${server.id}, '${server.name}')">
+                                                        <i class="fas fa-trash"></i> 删除
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // 切换组折叠状态
+        function toggleGroup(groupName) {
+            const groupElement = document.querySelector(`[data-group="${groupName}"]`);
+            const contentElement = groupElement.querySelector('.group-content');
+            const iconElement = groupElement.querySelector('.group-toggle-icon');
+            
+            const isCollapsed = contentElement.style.display === 'none';
+            contentElement.style.display = isCollapsed ? 'block' : 'none';
+            iconElement.className = `fas fa-chevron-${isCollapsed ? 'down' : 'right'} group-toggle-icon`;
+            
+            // 保存折叠状态到localStorage
+            localStorage.setItem(`group-${groupName}-collapsed`, !isCollapsed);
         }
 
         // 显示添加服务器模态框
@@ -764,6 +888,7 @@
             document.getElementById('server-password').value = '';
             document.getElementById('server-private-key').value = '';
             document.getElementById('server-dedicated-password').value = '';
+            document.getElementById('server-group').value = '';
             document.getElementById('server-modal').style.display = 'flex';
         }
 
@@ -785,6 +910,7 @@
             document.getElementById('server-private-key').value = server.private_key || '';
             document.getElementById('server-dedicated-password').value = server.dedicated_password || '';
             document.getElementById('server-description').value = server.description || '';
+            document.getElementById('server-group').value = server.group || '';
             
             document.getElementById('server-modal').style.display = 'flex';
         }
@@ -807,7 +933,8 @@
                 password: document.getElementById('server-password').value || null,
                 private_key: document.getElementById('server-private-key').value || null,
                 description: document.getElementById('server-description').value,
-                dedicated_password: document.getElementById('server-dedicated-password').value || null
+                dedicated_password: document.getElementById('server-dedicated-password').value || null,
+                group: document.getElementById('server-group').value || ''
             };
 
             try {
