@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员面板 - 服务器监控系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: hsl(216, 23%, 6%);
+            color: hsl(210, 40%, 98%);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(217, 19%, 12%, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(217, 19%, 25%, 0.5);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            padding: 20px 30px;
+            transition: all 0.3s ease;
+        }
+
+        .header:hover {
+            background: rgba(217, 19%, 15%, 0.95);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: hsl(210, 40%, 98%);
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, hsl(142, 71%, 45%), hsl(142, 71%, 50%));
+            color: hsl(144, 100%, 8%);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, hsl(142, 71%, 50%), hsl(142, 71%, 55%));
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px hsla(142, 71%, 45%, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, hsl(142, 71%, 45%), hsl(142, 71%, 50%));
+            color: hsl(144, 100%, 8%);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, hsl(142, 71%, 50%), hsl(142, 71%, 55%));
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px hsla(142, 71%, 45%, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, hsl(0, 84%, 60%), hsl(0, 84%, 65%));
+            color: #fff;
+        }
+
+        .btn-danger:hover {
+            background: linear-gradient(135deg, hsl(0, 84%, 60%), hsl(0, 84%, 65%));
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px hsla(0, 84%, 60%, 0.3);
+        }
+
+        /* 表格中的小按钮保持原有样式 */
+        .btn-small.btn-secondary {
+            background: hsl(217, 19%, 20%);
+            color: hsl(210, 40%, 98%);
+            border: 1px solid hsl(217, 19%, 25%);
+        }
+
+        .btn-small.btn-secondary:hover {
+            background: hsl(217, 19%, 25%);
+            border-color: hsl(217, 19%, 30%);
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-small.btn-danger {
+            background: hsl(0, 84%, 60%);
+            color: white;
+        }
+
+        .btn-small.btn-danger:hover {
+            background: hsl(0, 84%, 65%);
+            transform: none;
+            box-shadow: none;
+        }
+
+        .main-content {
+            margin-top: 100px;
+            padding: 2rem;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .admin-section {
+            background: hsl(217, 19%, 12%);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .section-title {
+            color: hsl(142, 71%, 45%);
+            font-size: 1.4rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .server-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        .server-table th,
+        .server-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .server-table th {
+            background: hsl(217, 19%, 15%);
+            color: hsl(142, 71%, 45%);
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .server-table td {
+            color: hsl(210, 40%, 98%);
+            font-size: 0.9rem;
+        }
+
+        .server-table tr:hover {
+            background: hsl(217, 19%, 15%);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-small {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+        }
+
+        .server-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: hsl(210, 40%, 98%);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.8rem;
+            background: hsl(217, 19%, 20%);
+            border: 2px solid hsl(217, 19%, 25%);
+            border-radius: 8px;
+            color: hsl(210, 40%, 98%);
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: hsl(142, 71%, 45%);
+            box-shadow: 0 0 0 3px hsla(142, 71%, 45%, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-actions {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
+        }
+
+        .message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .message.success {
+            background: hsla(120, 100%, 40%, 0.1);
+            border: 1px solid hsl(120, 100%, 40%);
+            color: hsl(120, 100%, 40%);
+        }
+
+        .message.error {
+            background: hsla(0, 84%, 60%, 0.1);
+            border: 1px solid hsl(0, 84%, 60%);
+            color: hsl(0, 84%, 60%);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: hsl(210, 20%, 75%);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: hsl(210, 20%, 75%);
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: hsl(217, 19%, 25%);
+        }
+
+        /* 模态框样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: hsl(217, 19%, 12%);
+            border-radius: 16px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            border: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+        }
+
+        .modal-title {
+            color: hsl(142, 71%, 45%);
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: hsl(210, 20%, 75%);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .close-btn:hover {
+            background: hsl(217, 19%, 20%);
+            color: hsl(210, 40%, 98%);
+        }
+
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .main-content {
+                padding: 1rem;
+            }
+
+            .server-table {
+                font-size: 0.8rem;
+            }
+
+            .server-table th,
+            .server-table td {
+                padding: 0.5rem;
+            }
+
+            .server-form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <h1><i class="fas fa-cogs"></i> 服务器管理面板</h1>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="window.location.href='/'">
+                    <i class="fas fa-chart-bar"></i> 监控面板
+                </button>
+                <button class="btn btn-danger" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i> 退出登录
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- 消息显示 -->
+        <div id="message-container"></div>
+
+        <!-- 服务器列表 -->
+        <div class="admin-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-server"></i> 服务器列表
+                </h2>
+                <button class="btn btn-primary" onclick="showAddServerModal()">
+                    <i class="fas fa-plus"></i> 添加服务器
+                </button>
+            </div>
+
+            <div id="servers-content">
+                <div class="loading">
+                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                </div>
+            </div>
+        </div>
+
+        <!-- 授权码管理 -->
+        <div class="admin-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-key"></i> 授权码管理
+                </h2>
+                <button class="btn btn-primary" onclick="generateAuthCode()">
+                    <i class="fas fa-plus"></i> 生成授权码
+                </button>
+            </div>
+
+            <div id="auth-code-section">
+                <p style="color: hsl(210, 20%, 75%); text-align: center; padding: 2rem;">
+                    点击上方按钮生成授权码
+                </p>
+            </div>
+            
+            <button id="copy-instruction-btn" class="btn btn-secondary" onclick="copyCurrentInstructions()" style="display: none; margin-top: 15px;">
+                <i class="fas fa-copy"></i> 复制使用说明
+            </button>
+        </div>
+
+        <!-- 密码管理 -->
+        <div class="admin-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-lock"></i> 密码管理
+                </h2>
+            </div>
+
+            <div class="admin-cards">
+                <div class="admin-card">
+                    <div class="form-group">
+                        <label for="old-password">当前密码:</label>
+                        <input type="password" id="old-password" placeholder="输入当前密码">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-password">新密码:</label>
+                        <input type="password" id="new-password" placeholder="输入新密码（至少6位）">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirm-password">确认密码:</label>
+                        <input type="password" id="confirm-password" placeholder="再次输入新密码">
+                    </div>
+                    <button class="btn btn-primary" onclick="changePassword()">
+                        <i class="fas fa-key"></i> 修改密码
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- 添加/编辑服务器模态框 -->
+    <div id="server-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">添加服务器</h3>
+                <button class="close-btn" onclick="closeServerModal()">&times;</button>
+            </div>
+
+            <form id="server-form" class="server-form">
+                <input type="hidden" id="server-id">
+                
+                <div class="form-group">
+                    <label for="server-name">服务器名称 *</label>
+                    <input type="text" id="server-name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-ip">IP地址 *</label>
+                    <input type="text" id="server-ip" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-port">端口号</label>
+                    <input type="number" id="server-port" value="22" min="1" max="65535">
+                </div>
+
+                <div class="form-group">
+                    <label for="server-username">用户名 *</label>
+                    <input type="text" id="server-username" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-password">密码</label>
+                    <input type="text" id="server-password" placeholder="留空则使用密钥登录">
+                    <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
+                        密码和密钥至少需要提供一个
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-private-key">SSH私钥</label>
+                    <textarea id="server-private-key" rows="6" placeholder="粘贴SSH私钥内容（留空则使用密码登录）"></textarea>
+                    <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
+                        支持RSA和Ed25519格式的私钥，密码和密钥至少需要提供一个
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-dedicated-password">专用密码</label>
+                    <input type="text" id="server-dedicated-password" placeholder="设置后只能使用此密码创建用户">
+                    <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
+                        设置专用密码后，用户需要在授权码输入框中输入此专用密码来创建用户
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="server-description">描述</label>
+                    <textarea id="server-description" placeholder="可选的服务器描述"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeServerModal()">取消</button>
+                    <button type="submit" class="btn btn-primary" id="submit-btn">
+                        <i class="fas fa-save"></i> 保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 用户管理模态框 -->
+    <div id="user-management-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-users"></i> 用户管理</h3>
+                <button class="close-btn" onclick="closeUserManagementModal()">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="form-group">
+                    <label><i class="fas fa-server"></i> 当前服务器:</label>
+                    <input type="text" id="current-server-display" readonly style="background: hsl(217, 19%, 10%); color: hsl(210, 40%, 98%);">
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h4 style="margin: 0; color: hsl(210, 40%, 98%);"><i class="fas fa-users"></i> 用户列表</h4>
+                    <button class="btn btn-primary btn-small" onclick="refreshUserList()">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
+                
+                <div id="user-list-container" style="min-height: 200px;">
+                    <div style="text-align: center; color: hsl(210, 20%, 75%); padding: 20px;">
+                        <i class="fas fa-spinner fa-spin"></i> 正在加载用户列表...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .user-list {
+            border: 1px solid hsl(217, 19%, 20%);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .user-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+            transition: background-color 0.3s ease;
+        }
+
+        .user-item:last-child {
+            border-bottom: none;
+        }
+
+        .user-item:hover {
+            background-color: hsl(217, 19%, 15%);
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-name {
+            font-weight: 500;
+            color: hsl(210, 40%, 98%);
+        }
+
+        .user-status {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .user-status.sudo {
+            background-color: hsla(142, 71%, 45%, 0.2);
+            color: hsl(142, 71%, 45%);
+            border: 1px solid hsl(142, 71%, 45%);
+        }
+
+        .user-status.normal {
+            background-color: hsla(210, 20%, 75%, 0.1);
+            color: hsl(210, 20%, 75%);
+            border: 1px solid hsl(210, 20%, 75%);
+        }
+
+        .user-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .user-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.8em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .user-btn.danger {
+            background-color: hsl(0, 84%, 60%);
+            color: white;
+        }
+
+        .user-btn.danger:hover {
+            background-color: hsl(0, 84%, 65%);
+        }
+
+        .user-btn.warning {
+            background-color: hsl(45, 100%, 50%);
+            color: hsl(45, 100%, 15%);
+        }
+
+        .user-btn.warning:hover {
+            background-color: hsl(45, 100%, 55%);
+        }
+
+        .user-btn.success {
+            background-color: hsl(120, 100%, 40%);
+            color: white;
+        }
+
+        .user-btn.success:hover {
+            background-color: hsl(120, 100%, 45%);
+        }
+    </style>
+
+    <script>
+        let servers = [];
+        let currentServerId = null;
+
+        // 页面加载时获取服务器列表
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServers();
+        });
+
+        // 加载服务器列表
+        async function loadServers() {
+            try {
+                const response = await fetch('/api/admin/servers');
+                const result = await response.json();
+
+                if (result.success) {
+                    servers = result.servers;
+                    renderServers();
+                } else {
+                    showMessage('error', result.error || '加载服务器列表失败');
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        // 渲染服务器列表
+        function renderServers() {
+            const container = document.getElementById('servers-content');
+            
+            if (servers.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-server"></i>
+                        <h3>暂无服务器</h3>
+                        <p>点击上方"添加服务器"按钮开始添加</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const tableHTML = `
+                <table class="server-table">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>IP地址</th>
+                            <th>端口</th>
+                            <th>用户名</th>
+                            <th>描述</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${servers.map(server => `
+                            <tr>
+                                <td><strong>${server.name}</strong></td>
+                                <td>${server.ip}</td>
+                                <td>${server.port}</td>
+                                <td>${server.username}</td>
+                                <td>${server.description || '-'}</td>
+                                <td>${new Date(server.created_at).toLocaleDateString()}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="btn btn-secondary btn-small" onclick="editServer(${server.id})">
+                                            <i class="fas fa-edit"></i> 编辑
+                                        </button>
+                                        <button class="btn btn-secondary btn-small" onclick="manageServerUsers('${server.name}')">
+                                            <i class="fas fa-users"></i> 用户
+                                        </button>
+                                        <button class="btn btn-danger btn-small" onclick="deleteServer(${server.id}, '${server.name}')">
+                                            <i class="fas fa-trash"></i> 删除
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = tableHTML;
+        }
+
+        // 显示添加服务器模态框
+        function showAddServerModal() {
+            currentServerId = null;
+            document.getElementById('modal-title').textContent = '添加服务器';
+            document.getElementById('submit-btn').innerHTML = '<i class="fas fa-save"></i> 添加';
+            document.getElementById('server-form').reset();
+            document.getElementById('server-port').value = '22';
+            document.getElementById('server-password').value = '';
+            document.getElementById('server-private-key').value = '';
+            document.getElementById('server-dedicated-password').value = '';
+            document.getElementById('server-modal').style.display = 'flex';
+        }
+
+        // 编辑服务器
+        function editServer(serverId) {
+            const server = servers.find(s => s.id === serverId);
+            if (!server) return;
+
+            currentServerId = serverId;
+            document.getElementById('modal-title').textContent = '编辑服务器';
+            document.getElementById('submit-btn').innerHTML = '<i class="fas fa-save"></i> 更新';
+            
+            document.getElementById('server-id').value = server.id;
+            document.getElementById('server-name').value = server.name;
+            document.getElementById('server-ip').value = server.ip;
+            document.getElementById('server-port').value = server.port;
+            document.getElementById('server-username').value = server.username;
+            document.getElementById('server-password').value = server.password || '';
+            document.getElementById('server-private-key').value = server.private_key || '';
+            document.getElementById('server-dedicated-password').value = server.dedicated_password || '';
+            document.getElementById('server-description').value = server.description || '';
+            
+            document.getElementById('server-modal').style.display = 'flex';
+        }
+
+        // 关闭服务器模态框
+        function closeServerModal() {
+            document.getElementById('server-modal').style.display = 'none';
+            currentServerId = null;
+        }
+
+        // 提交服务器表单
+        document.getElementById('server-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = {
+                name: document.getElementById('server-name').value,
+                ip: document.getElementById('server-ip').value,
+                port: parseInt(document.getElementById('server-port').value),
+                username: document.getElementById('server-username').value,
+                password: document.getElementById('server-password').value || null,
+                private_key: document.getElementById('server-private-key').value || null,
+                description: document.getElementById('server-description').value,
+                dedicated_password: document.getElementById('server-dedicated-password').value || null
+            };
+
+            try {
+                let response;
+                if (currentServerId) {
+                    // 更新服务器
+                    response = await fetch(`/api/admin/servers/${currentServerId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+                } else {
+                    // 添加服务器
+                    response = await fetch('/api/admin/servers', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('success', result.message);
+                    closeServerModal();
+                    loadServers();
+                } else {
+                    showMessage('error', result.message || result.error);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        });
+
+        // 删除服务器
+        async function deleteServer(serverId, serverName) {
+            if (!confirm(`确定要删除服务器 "${serverName}" 吗？此操作不可恢复。`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/servers/${serverId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('success', result.message);
+                    loadServers();
+                } else {
+                    showMessage('error', result.message);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        // 生成授权码
+        let currentAuthCode = null;
+        let currentGenerateTime = null;
+        let currentExpireTime = null;
+
+        async function generateAuthCode() {
+            try {
+                const response = await fetch('/api/admin/generate-auth-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const now = new Date();
+                    const expireTime = new Date(now.getTime() + result.expires_in * 1000);
+                    
+                    // 保存当前授权码信息
+                    currentAuthCode = result.auth_code;
+                    currentGenerateTime = now;
+                    currentExpireTime = expireTime;
+                    
+                    document.getElementById('auth-code-section').innerHTML = `
+                        <div style="background: hsl(217, 19%, 15%); padding: 1.5rem; border-radius: 8px; border: 1px solid hsl(217, 19%, 25%);">
+                            <div style="margin-bottom: 1rem;">
+                                <strong style="color: hsl(142, 71%, 45%);">授权码：</strong>
+                                <code style="background: hsl(217, 19%, 20%); padding: 0.5rem; border-radius: 4px; color: hsl(210, 40%, 98%); font-family: monospace;">${result.auth_code}</code>
+                            </div>
+                            <div style="margin-bottom: 1rem;">
+                                <strong style="color: hsl(142, 71%, 45%);">有效期至：</strong>
+                                <span style="color: hsl(210, 40%, 98%);">${expireTime.toLocaleString()}</span>
+                            </div>
+                            <div style="font-size: 0.9rem; color: hsl(210, 20%, 75%); line-height: 1.5;">
+                                <p><strong>使用说明：</strong></p>
+                                <p>1. 访问主页面的任意服务器卡片</p>
+                                <p>2. 点击"创建用户"按钮</p>
+                                <p>3. 在弹出的对话框中输入此授权码</p>
+                                <p>4. 授权码仅可使用一次，30分钟后自动失效</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 显示复制按钮
+                    document.getElementById('copy-instruction-btn').style.display = 'inline-flex';
+                    
+                    showMessage('success', '授权码生成成功');
+                } else {
+                    showMessage('error', result.error);
+                }
+            } catch (error) {
+                showMessage('error', '生成授权码失败');
+            }
+        }
+
+        // 复制使用说明
+        function copyCurrentInstructions() {
+            if (!currentAuthCode || !currentGenerateTime || !currentExpireTime) {
+                showMessage('error', '没有可复制的授权码信息');
+                return;
+            }
+
+            const instructionText = `【授权码】${currentAuthCode}
+
+【使用说明】
+-- 访问主页面选择任意服务器
+-- 点击服务器卡片上的"创建用户"按钮
+-- 在弹出的对话框中输入此授权码
+-- 输入用户名（建议使用真实姓名拼音）
+-- 点击"创建用户"完成账户创建
+-- 创建成功后点击"下载私钥文件"
+
+【重要提醒】
+-- 授权码有效期30分钟，仅可使用一次，使用后立即失效
+-- 生成时间：${currentGenerateTime.toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}
+-- 过期时间：${currentExpireTime.toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}`;
+
+            fallbackCopyToClipboard(instructionText, true);
+        }
+
+        // 降级复制方案
+        function fallbackCopyToClipboard(text, isInstruction = false) {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showCopySuccess(isInstruction ? '使用说明已复制到剪贴板' : '内容已复制到剪贴板');
+                } else {
+                    showMessage('error', '复制失败，请手动复制');
+                }
+            } catch (err) {
+                showMessage('error', '复制失败，请手动复制');
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        // 显示复制成功消息
+        function showCopySuccess(message) {
+            showMessage('success', message);
+        }
+
+        // 修改密码
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value.trim();
+            const newPassword = document.getElementById('new-password').value.trim();
+            const confirmPassword = document.getElementById('confirm-password').value.trim();
+
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                showMessage('error', '请填写所有密码字段');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showMessage('error', '新密码和确认密码不匹配');
+                return;
+            }
+
+            if (newPassword.length < 6) {
+                showMessage('error', '新密码长度至少6位');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        old_password: oldPassword,
+                        new_password: newPassword
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('success', result.message);
+                    // 清空输入框
+                    document.getElementById('old-password').value = '';
+                    document.getElementById('new-password').value = '';
+                    document.getElementById('confirm-password').value = '';
+                } else {
+                    showMessage('error', result.error);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        // 退出登录
+        async function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                try {
+                    await fetch('/api/admin/logout', { method: 'POST' });
+                    window.location.href = '/admin/login';
+                } catch (error) {
+                    window.location.href = '/admin/login';
+                }
+            }
+        }
+
+        // 显示消息
+        function showMessage(type, message) {
+            const container = document.getElementById('message-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.textContent = message;
+            
+            container.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+
+        // 用户管理相关变量
+        let currentManagementServer = null;
+        let userList = [];
+
+        // 显示用户管理模态框
+        function manageServerUsers(serverName) {
+            const server = servers.find(s => s.name === serverName);
+            if (!server) {
+                showMessage('error', '服务器信息未找到');
+                return;
+            }
+
+            currentManagementServer = server;
+            document.getElementById('current-server-display').value = `${server.name} (${server.ip}:${server.port})`;
+            document.getElementById('user-management-modal').style.display = 'flex';
+            
+            // 加载用户列表
+            loadUserList();
+        }
+
+        // 关闭用户管理模态框
+        function closeUserManagementModal() {
+            document.getElementById('user-management-modal').style.display = 'none';
+            currentManagementServer = null;
+            userList = [];
+        }
+
+        // 加载用户列表
+        async function loadUserList() {
+            if (!currentManagementServer) return;
+            
+            const container = document.getElementById('user-list-container');
+            container.innerHTML = '<div style="text-align: center; color: hsl(210, 20%, 75%); padding: 20px;"><i class="fas fa-spinner fa-spin"></i> 正在加载用户列表...</div>';
+            
+            try {
+                const response = await fetch(`/api/admin/servers/${currentManagementServer.name}/users`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    userList = result.users;
+                    renderUserList();
+                } else {
+                    container.innerHTML = `<div style="text-align: center; color: hsl(0, 84%, 60%); padding: 20px;">加载失败: ${result.error}</div>`;
+                }
+            } catch (error) {
+                container.innerHTML = '<div style="text-align: center; color: hsl(0, 84%, 60%); padding: 20px;">网络请求失败</div>';
+            }
+        }
+
+        // 渲染用户列表
+        function renderUserList() {
+            const container = document.getElementById('user-list-container');
+            
+            if (userList.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: hsl(210, 20%, 75%); padding: 20px;">暂无用户</div>';
+                return;
+            }
+
+            const listHTML = `
+                <div class="user-list">
+                    ${userList.map(user => `
+                        <div class="user-item">
+                            <div class="user-info">
+                                <span class="user-name">${user.username}</span>
+                                <span class="user-status ${user.has_sudo ? 'sudo' : 'normal'}">
+                                    <i class="fas ${user.has_sudo ? 'fa-shield-alt' : 'fa-user'}"></i>
+                                    ${user.has_sudo ? 'sudo' : 'normal'}
+                                </span>
+                            </div>
+                            <div class="user-actions">
+                                ${user.has_sudo ? 
+                                    `<button class="user-btn warning" onclick="manageSudo('${user.username}', 'revoke')">
+                                        <i class="fas fa-shield-alt"></i> 移除sudo
+                                    </button>` :
+                                    `<button class="user-btn success" onclick="manageSudo('${user.username}', 'grant')">
+                                        <i class="fas fa-shield-alt"></i> 授予sudo
+                                    </button>`
+                                }
+                                <button class="user-btn danger" onclick="deleteUser('${user.username}')">
+                                    <i class="fas fa-trash"></i> 删除
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            container.innerHTML = listHTML;
+        }
+
+        // 刷新用户列表
+        function refreshUserList() {
+            loadUserList();
+        }
+
+        // 删除用户
+        async function deleteUser(username) {
+            if (!confirm(`确定要删除用户 "${username}" 吗？此操作不可恢复。`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/servers/${currentManagementServer.name}/users/${username}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('success', result.message);
+                    loadUserList(); // 重新加载用户列表
+                } else {
+                    showMessage('error', result.error);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        // 管理sudo权限
+        async function manageSudo(username, action) {
+            const actionText = action === 'grant' ? '授予' : '移除';
+            let confirmMessage = `确定要${actionText}用户 "${username}" 的sudo权限吗？`;
+            
+            if (action === 'grant') {
+                confirmMessage += `\n\n注意：授予sudo权限的同时，系统会自动将用户密码设置为用户名 "${username}"。`;
+            }
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/servers/${currentManagementServer.name}/users/${username}/sudo`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showMessage('success', result.message);
+                    loadUserList(); // 重新加载用户列表
+                } else {
+                    showMessage('error', result.error);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        // 点击模态框外部关闭
+        window.addEventListener('click', function(e) {
+            const serverModal = document.getElementById('server-modal');
+            const userModal = document.getElementById('user-management-modal');
+            
+            if (e.target === serverModal) {
+                closeServerModal();
+            }
+            if (e.target === userModal) {
+                closeUserManagementModal();
+            }
+        });
+    </script>
+</body>
+</html>
