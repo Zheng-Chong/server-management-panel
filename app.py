@@ -11,8 +11,11 @@ import secrets
 import hashlib
 import io
 from datetime import datetime, timezone, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FutureTimeoutError
 from database import DatabaseManager
+from collections import defaultdict
+from queue import Queue
+import logging
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-in-production')
@@ -32,13 +35,193 @@ auth_codes = {}
 # 东八区时区
 CST = timezone(timedelta(hours=8))
 
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# SSH连接池配置
+SSH_CONNECTION_TIMEOUT = 10  # SSH连接超时（秒）
+SSH_COMMAND_TIMEOUT = 30  # SSH命令执行超时（秒）
+SSH_POOL_MAX_SIZE = 5  # 每个服务器的最大连接池大小
+SSH_POOL_IDLE_TIMEOUT = 300  # 连接空闲超时（秒）
+SSH_POOL_CLEANUP_INTERVAL = 60  # 连接池清理间隔（秒）
+
+# SSH连接池
+class SSHConnectionPool:
+    """SSH连接池管理器"""
+    def __init__(self):
+        self._pools = defaultdict(list)  # server_key -> [ssh_connections]
+        self._lock = threading.RLock()
+        self._last_used = {}  # server_key -> last_used_time
+        self._cleanup_thread = None
+        self._running = True
+        
+    def _get_server_key(self, server):
+        """生成服务器唯一标识"""
+        return f"{server['ip']}:{server.get('port', 22)}:{server['username']}"
+    
+    def _is_connection_alive(self, ssh):
+        """检查SSH连接是否存活"""
+        try:
+            transport = ssh.get_transport()
+            if transport is None:
+                return False
+            return transport.is_alive()
+        except:
+            return False
+    
+    def get_connection(self, server):
+        """从连接池获取SSH连接"""
+        server_key = self._get_server_key(server)
+        
+        with self._lock:
+            # 尝试从池中获取可用连接
+            while self._pools[server_key]:
+                ssh = self._pools[server_key].pop(0)
+                if self._is_connection_alive(ssh):
+                    self._last_used[server_key] = time.time()
+                    return ssh
+                else:
+                    try:
+                        ssh.close()
+                    except:
+                        pass
+            
+            # 池中没有可用连接，创建新连接
+            return None
+    
+    def return_connection(self, server, ssh):
+        """将SSH连接返回到连接池"""
+        if ssh is None:
+            return
+        
+        server_key = self._get_server_key(server)
+        
+        with self._lock:
+            # 检查连接是否存活
+            if not self._is_connection_alive(ssh):
+                try:
+                    ssh.close()
+                except:
+                    pass
+                return
+            
+            # 检查池大小限制
+            if len(self._pools[server_key]) >= SSH_POOL_MAX_SIZE:
+                try:
+                    ssh.close()
+                except:
+                    pass
+                return
+            
+            # 将连接返回到池中
+            self._pools[server_key].append(ssh)
+            self._last_used[server_key] = time.time()
+    
+    def close_connection(self, server, ssh):
+        """关闭并移除连接"""
+        if ssh is None:
+            return
+        
+        server_key = self._get_server_key(server)
+        
+        with self._lock:
+            try:
+                if ssh in self._pools[server_key]:
+                    self._pools[server_key].remove(ssh)
+                ssh.close()
+            except:
+                pass
+    
+    def cleanup_idle_connections(self):
+        """清理空闲连接"""
+        current_time = time.time()
+        
+        with self._lock:
+            for server_key in list(self._pools.keys()):
+                last_used = self._last_used.get(server_key, 0)
+                
+                # 如果超过空闲超时时间，清理所有连接
+                if current_time - last_used > SSH_POOL_IDLE_TIMEOUT:
+                    for ssh in self._pools[server_key]:
+                        try:
+                            ssh.close()
+                        except:
+                            pass
+                    del self._pools[server_key]
+                    if server_key in self._last_used:
+                        del self._last_used[server_key]
+                else:
+                    # 清理不活跃的连接
+                    active_connections = []
+                    for ssh in self._pools[server_key]:
+                        if self._is_connection_alive(ssh):
+                            active_connections.append(ssh)
+                        else:
+                            try:
+                                ssh.close()
+                            except:
+                                pass
+                    self._pools[server_key] = active_connections
+    
+    def start_cleanup_thread(self):
+        """启动清理线程"""
+        def cleanup_loop():
+            while self._running:
+                try:
+                    self.cleanup_idle_connections()
+                    time.sleep(SSH_POOL_CLEANUP_INTERVAL)
+                except Exception as e:
+                    logger.error(f"连接池清理线程错误: {str(e)}")
+        
+        self._cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
+        self._cleanup_thread.start()
+    
+    def shutdown(self):
+        """关闭所有连接"""
+        self._running = False
+        with self._lock:
+            for server_key in list(self._pools.keys()):
+                for ssh in self._pools[server_key]:
+                    try:
+                        ssh.close()
+                    except:
+                        pass
+                del self._pools[server_key]
+            self._pools.clear()
+            self._last_used.clear()
+
+# 创建全局SSH连接池
+ssh_pool = SSHConnectionPool()
+ssh_pool.start_cleanup_thread()
+
+# 统一错误处理函数
+def create_error_response(error_message, status_code=400, error_code=None):
+    """创建统一的错误响应格式"""
+    response = {
+        'success': False,
+        'error': error_message
+    }
+    if error_code:
+        response['error_code'] = error_code
+    return jsonify(response), status_code
+
+def create_success_response(data=None, message=None):
+    """创建统一的成功响应格式"""
+    response = {'success': True}
+    if data is not None:
+        response['data'] = data
+    if message:
+        response['message'] = message
+    return jsonify(response)
+
 # 验证管理员权限的装饰器
 def require_admin(f):
     from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('admin_logged_in'):
-            return jsonify({'success': False, 'error': '需要管理员权限'}), 401
+            return create_error_response('需要管理员权限', 401, 'UNAUTHORIZED')
         return f(*args, **kwargs)
     return decorated_function
 
@@ -46,8 +229,15 @@ def load_servers():
     """从数据库加载服务器列表"""
     return db.get_all_servers()
 
-def connect_ssh(server, max_retries=3, delay=5):
-    """统一的SSH连接函数，支持密钥和密码两种方式，带重试机制"""
+def connect_ssh(server, max_retries=3, delay=5, use_pool=True):
+    """统一的SSH连接函数，支持密钥和密码两种方式，带重试机制和连接池"""
+    # 尝试从连接池获取连接
+    if use_pool:
+        ssh = ssh_pool.get_connection(server)
+        if ssh is not None:
+            return ssh
+    
+    # 连接池中没有可用连接，创建新连接
     last_exception = None
     
     for attempt in range(max_retries):
@@ -68,7 +258,7 @@ def connect_ssh(server, max_retries=3, delay=5):
                         port=server.get('port', 22),
                         username=server['username'],
                         pkey=private_key_obj,
-                        timeout=10
+                        timeout=SSH_CONNECTION_TIMEOUT
                     )
                 except Exception:
                     # 如果RSA密钥失败，尝试Ed25519格式
@@ -81,7 +271,7 @@ def connect_ssh(server, max_retries=3, delay=5):
                             port=server.get('port', 22),
                             username=server['username'],
                             pkey=private_key_obj,
-                            timeout=10
+                            timeout=SSH_CONNECTION_TIMEOUT
                         )
                     except Exception:
                         # 如果都失败，尝试使用密码（如果存在）
@@ -91,7 +281,7 @@ def connect_ssh(server, max_retries=3, delay=5):
                                 port=server.get('port', 22),
                                 username=server['username'],
                                 password=server['password'],
-                                timeout=10
+                                timeout=SSH_CONNECTION_TIMEOUT
                             )
                         else:
                             raise Exception("密钥格式错误且未提供密码")
@@ -102,7 +292,7 @@ def connect_ssh(server, max_retries=3, delay=5):
                     port=server.get('port', 22),
                     username=server['username'],
                     password=server['password'],
-                    timeout=10
+                    timeout=SSH_CONNECTION_TIMEOUT
                 )
             else:
                 raise Exception("服务器配置错误：密码和密钥至少需要提供一个")
@@ -113,10 +303,10 @@ def connect_ssh(server, max_retries=3, delay=5):
         except (SSHException, EOFError) as e:
             last_exception = e
             if attempt < max_retries - 1:
-                print(f"SSH连接失败 ({str(e)}), 正在进行第 {attempt + 1}/{max_retries} 次重试... (服务器: {server.get('name', server.get('ip'))})")
+                logger.warning(f"SSH连接失败 ({str(e)}), 正在进行第 {attempt + 1}/{max_retries} 次重试... (服务器: {server.get('name', server.get('ip'))})")
                 time.sleep(delay)
             else:
-                print(f"SSH连接失败，已达到最大重试次数 ({max_retries}次) (服务器: {server.get('name', server.get('ip'))})")
+                logger.error(f"SSH连接失败，已达到最大重试次数 ({max_retries}次) (服务器: {server.get('name', server.get('ip'))})")
         except Exception as e:
             # 对于其他类型的异常（如配置错误），不进行重试，直接抛出
             raise e
@@ -124,19 +314,56 @@ def connect_ssh(server, max_retries=3, delay=5):
     # 如果所有重试都失败，抛出最后一个异常
     raise Exception(f"SSH连接失败，已达到最大重试次数 ({max_retries}次): {str(last_exception)}")
 
-def execute_ssh_command(server, command):
+def close_ssh(server, ssh, return_to_pool=True):
+    """关闭SSH连接，可选择返回到连接池"""
+    if ssh is None:
+        return
+    
+    if return_to_pool:
+        ssh_pool.return_connection(server, ssh)
+    else:
+        ssh_pool.close_connection(server, ssh)
+
+def execute_ssh_command(server, command, timeout=SSH_COMMAND_TIMEOUT, use_pool=True):
+    """执行SSH命令，支持超时控制和连接池"""
+    ssh = None
     try:
-        ssh = connect_ssh(server)
-        stdin, stdout, stderr = ssh.exec_command(command)
+        ssh = connect_ssh(server, use_pool=use_pool)
+        
+        # 执行命令并设置超时
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+        
+        # 等待命令完成，带超时控制
+        start_time = time.time()
+        while True:
+            if time.time() - start_time > timeout:
+                raise TimeoutError(f"命令执行超时 ({timeout}秒)")
+            
+            # 检查通道是否就绪
+            if stdout.channel.exit_status_ready():
+                break
+            
+            time.sleep(0.1)
+        
         output = stdout.read().decode('utf-8')
         error = stderr.read().decode('utf-8')
         
-        ssh.close()
+        # 将连接返回到池中
+        close_ssh(server, ssh, return_to_pool=use_pool)
+        ssh = None
         
         if error:
             return f"Error: {error}"
         return output
+    except TimeoutError as e:
+        logger.error(f"SSH命令执行超时: {str(e)} (服务器: {server.get('name', server.get('ip'))}, 命令: {command[:50]})")
+        if ssh:
+            close_ssh(server, ssh, return_to_pool=False)  # 超时的连接不返回到池中
+        return f"Timeout Error: {str(e)}"
     except Exception as e:
+        logger.error(f"SSH命令执行错误: {str(e)} (服务器: {server.get('name', server.get('ip'))})")
+        if ssh:
+            close_ssh(server, ssh, return_to_pool=False)  # 出错的连接不返回到池中
         return f"Connection Error: {str(e)}"
 
 def get_server_status(server):
@@ -173,12 +400,23 @@ def get_server_status(server):
     
     return status
 
-def update_single_server(server):
-    """更新单个服务器状态（用于并发执行）"""
+def update_single_server(server, timeout=SSH_COMMAND_TIMEOUT * 3):
+    """更新单个服务器状态（用于并发执行），带超时控制"""
     try:
         status = get_server_status(server)
         return (server['name'], status)
+    except TimeoutError as e:
+        logger.warning(f"更新服务器 {server['name']} 超时: {str(e)}")
+        return (server['name'], {
+            'name': server['name'],
+            'ip': server['ip'],
+            'port': server.get('port', 22),
+            'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
+            'disk_usage': f'Timeout Error: 操作超时',
+            'gpu_status': f'Timeout Error: 操作超时'
+        })
     except Exception as e:
+        logger.error(f"更新服务器 {server['name']} 时发生错误: {str(e)}")
         # 如果更新失败，返回错误状态
         return (server['name'], {
             'name': server['name'],
@@ -190,35 +428,95 @@ def update_single_server(server):
         })
 
 def update_all_servers():
+    """更新所有服务器状态，带超时控制和连接数限制"""
     global server_status
     
-    # 创建线程池（最多10个并发线程，在循环外创建以提高效率）
-    executor = ThreadPoolExecutor(max_workers=10)
+    # 配置参数
+    MAX_WORKERS = 10  # 最大并发线程数
+    UPDATE_INTERVAL = 30  # 更新间隔（秒）
+    SINGLE_SERVER_TIMEOUT = SSH_COMMAND_TIMEOUT * 3  # 单个服务器更新超时（秒）
+    BATCH_TIMEOUT = 120  # 整批更新超时（秒）
+    
+    # 创建线程池（在循环外创建以提高效率）
+    executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
     
     try:
         while True:
-            servers = load_servers()  # 每次循环重新加载服务器列表
-            current_server_names = {server['name'] for server in servers}
-            
-            # 清理已删除的服务器状态
-            for server_name in list(server_status.keys()):
-                if server_name not in current_server_names:
-                    del server_status[server_name]
-            
-            # 并发更新所有服务器状态
-            future_to_server = {executor.submit(update_single_server, server): server for server in servers}
-            
-            # 收集更新结果
-            for future in as_completed(future_to_server):
-                try:
-                    server_name, status = future.result()
-                    server_status[server_name] = status
-                except Exception as e:
+            try:
+                start_time = time.time()
+                servers = load_servers()  # 每次循环重新加载服务器列表
+                current_server_names = {server['name'] for server in servers}
+                
+                # 清理已删除的服务器状态
+                for server_name in list(server_status.keys()):
+                    if server_name not in current_server_names:
+                        del server_status[server_name]
+                
+                if not servers:
+                    logger.info("没有服务器需要更新")
+                    time.sleep(UPDATE_INTERVAL)
+                    continue
+                
+                logger.info(f"开始更新 {len(servers)} 台服务器状态...")
+                
+                # 并发更新所有服务器状态，带超时控制
+                future_to_server = {}
+                for server in servers:
+                    future = executor.submit(update_single_server, server, SINGLE_SERVER_TIMEOUT)
+                    future_to_server[future] = server
+                
+                # 收集更新结果，带整体超时控制
+                completed_count = 0
+                timeout_futures = []
+                
+                for future in as_completed(future_to_server, timeout=BATCH_TIMEOUT):
+                    try:
+                        server_name, status = future.result(timeout=1)  # 快速获取结果
+                        server_status[server_name] = status
+                        completed_count += 1
+                    except FutureTimeoutError:
+                        # 单个future超时，记录但继续处理其他
+                        server = future_to_server[future]
+                        logger.warning(f"获取服务器 {server['name']} 更新结果超时")
+                        timeout_futures.append(future)
+                    except Exception as e:
+                        server = future_to_server[future]
+                        logger.error(f"更新服务器 {server['name']} 时发生错误: {str(e)}")
+                        # 设置错误状态
+                        server_status[server['name']] = {
+                            'name': server['name'],
+                            'ip': server['ip'],
+                            'port': server.get('port', 22),
+                            'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
+                            'disk_usage': f'Error: {str(e)}',
+                            'gpu_status': f'Error: {str(e)}'
+                        }
+                
+                # 处理超时的future
+                for future in timeout_futures:
                     server = future_to_server[future]
-                    print(f"更新服务器 {server['name']} 时发生错误: {str(e)}")
+                    logger.warning(f"取消超时的服务器更新任务: {server['name']}")
+                    future.cancel()
+                    # 设置超时状态
+                    server_status[server['name']] = {
+                        'name': server['name'],
+                        'ip': server['ip'],
+                        'port': server.get('port', 22),
+                        'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
+                        'disk_usage': 'Timeout Error: 更新超时',
+                        'gpu_status': 'Timeout Error: 更新超时'
+                    }
+                
+                elapsed_time = time.time() - start_time
+                logger.info(f"完成更新 {completed_count}/{len(servers)} 台服务器，耗时 {elapsed_time:.2f} 秒")
+                
+            except Exception as e:
+                logger.error(f"更新服务器状态时发生严重错误: {str(e)}", exc_info=True)
             
-            time.sleep(30)  # 每30秒更新一次
+            time.sleep(UPDATE_INTERVAL)  # 每30秒更新一次
+            
     finally:
+        logger.info("关闭服务器状态更新线程池")
         executor.shutdown(wait=True)
 
 @app.route('/')
@@ -240,19 +538,23 @@ def admin_login():
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login_api():
     """管理员登录API"""
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    
-    if not username or not password:
-        return jsonify({'success': False, 'error': '用户名和密码不能为空'})
-    
-    if db.verify_admin(username, password):
-        session['admin_logged_in'] = True
-        session['admin_username'] = username
-        return jsonify({'success': True, 'message': '登录成功'})
-    else:
-        return jsonify({'success': False, 'error': '用户名或密码错误'})
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return create_error_response('用户名和密码不能为空', 400, 'MISSING_CREDENTIALS')
+        
+        if db.verify_admin(username, password):
+            session['admin_logged_in'] = True
+            session['admin_username'] = username
+            return create_success_response(message='登录成功')
+        else:
+            return create_error_response('用户名或密码错误', 401, 'INVALID_CREDENTIALS')
+    except Exception as e:
+        logger.error(f"管理员登录错误: {str(e)}", exc_info=True)
+        return create_error_response('登录过程中发生错误', 500, 'INTERNAL_ERROR')
 
 @app.route('/api/admin/logout', methods=['POST'])
 def admin_logout():
@@ -264,29 +566,33 @@ def admin_logout():
 @app.route('/api/admin/change-password', methods=['POST'])
 @require_admin
 def change_admin_password():
-    """修改管理员密码"""
-    data = request.get_json()
-    old_password = data.get('old_password')
-    new_password = data.get('new_password')
-    
-    if not old_password or not new_password:
-        return jsonify({'success': False, 'error': '旧密码和新密码不能为空'})
-    
-    # 验证旧密码
-    if not db.verify_admin('admin', old_password):
-        return jsonify({'success': False, 'error': '当前密码不正确'})
-    
-    # 验证新密码长度
-    if len(new_password) < 6:
-        return jsonify({'success': False, 'error': '新密码长度至少6位'})
-    
-    # 更新密码
-    success, message = db.update_admin_password('admin', new_password)
-    
-    if success:
-        return jsonify({'success': True, 'message': '密码修改成功'})
-    else:
-        return jsonify({'success': False, 'error': message})
+    """修改管理员密码，统一错误处理"""
+    try:
+        data = request.get_json()
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+        
+        if not old_password or not new_password:
+            return create_error_response('旧密码和新密码不能为空', 400, 'MISSING_PASSWORD')
+        
+        # 验证旧密码
+        if not db.verify_admin('admin', old_password):
+            return create_error_response('当前密码不正确', 401, 'INVALID_PASSWORD')
+        
+        # 验证新密码长度
+        if len(new_password) < 6:
+            return create_error_response('新密码长度至少6位', 400, 'PASSWORD_TOO_SHORT')
+        
+        # 更新密码
+        success, message = db.update_admin_password('admin', new_password)
+        
+        if success:
+            return create_success_response(message='密码修改成功')
+        else:
+            return create_error_response(message, 400, 'PASSWORD_UPDATE_FAILED')
+    except Exception as e:
+        logger.error(f"修改管理员密码错误: {str(e)}", exc_info=True)
+        return create_error_response('修改密码时发生错误', 500, 'INTERNAL_ERROR')
 
 @app.route('/api/admin/generate-auth-code', methods=['POST'])
 @require_admin
@@ -394,110 +700,128 @@ def create_user_on_server(server, username, admin_password):
 
 @app.route('/api/create-user', methods=['POST'])
 def create_user():
-    data = request.get_json()
-    server_name = data.get('server_name')
-    username = data.get('username')
-    auth_code = data.get('auth_code')
-    
-    # 查找服务器配置
-    server = db.get_server_by_name(server_name)
-    
-    if not server:
-        return jsonify({'success': False, 'error': '服务器未找到'})
-    
-    # 检查是否设置了专用密码
-    if server.get('dedicated_password'):
-        # 如果设置了专用密码，验证输入的授权码是否等于专用密码
-        if auth_code != server.get('dedicated_password'):
-            return jsonify({'success': False, 'error': '专用密码错误'})
-    else:
-        # 如果没有设置专用密码，使用正常的授权码验证
-        if not verify_auth_code(auth_code):
-            return jsonify({'success': False, 'error': '授权码无效或已过期'})
+    """创建用户，统一错误处理"""
+    try:
+        data = request.get_json()
+        server_name = data.get('server_name')
+        username = data.get('username')
+        auth_code = data.get('auth_code')
         
-        # 立即删除授权码（单次有效）
-        if auth_code in auth_codes:
-            del auth_codes[auth_code]
-    
-    # 验证用户名格式
-    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_-]{0,31}$', username):
-        return jsonify({'success': False, 'error': '用户名格式无效'})
-    
-    # 创建用户（使用固定的管理员密码）
-    success, message, private_key = create_user_on_server(server, username, '123456')
-    
-    if success and private_key:
-        # 存储私钥到临时文件
-        key_id = f"{server_name}_{username}"
-        user_keys[key_id] = private_key
+        # 查找服务器配置
+        server = db.get_server_by_name(server_name)
         
-        # 生成私钥文件名
-        filename = f"id_rsa-{server_name}-{username}"
+        if not server:
+            return create_error_response('服务器未找到', 404, 'SERVER_NOT_FOUND')
         
-        return jsonify({
-            'success': True, 
-            'message': message,
-            'ssh_command': f'ssh {username}@{server["ip"]} -p {server.get("port", 22)}',
-            'key_filename': filename
-        })
-    else:
-        return jsonify({'success': False, 'error': message})
+        # 检查是否设置了专用密码
+        if server.get('dedicated_password'):
+            # 如果设置了专用密码，验证输入的授权码是否等于专用密码
+            if auth_code != server.get('dedicated_password'):
+                return create_error_response('专用密码错误', 401, 'INVALID_PASSWORD')
+        else:
+            # 如果没有设置专用密码，使用正常的授权码验证
+            if not verify_auth_code(auth_code):
+                return create_error_response('授权码无效或已过期', 401, 'INVALID_AUTH_CODE')
+            
+            # 立即删除授权码（单次有效）
+            if auth_code in auth_codes:
+                del auth_codes[auth_code]
+        
+        # 验证用户名格式
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_-]{0,31}$', username):
+            return create_error_response('用户名格式无效', 400, 'INVALID_USERNAME_FORMAT')
+        
+        # 创建用户（使用固定的管理员密码）
+        success, message, private_key = create_user_on_server(server, username, '123456')
+        
+        if success and private_key:
+            # 存储私钥到临时文件
+            key_id = f"{server_name}_{username}"
+            user_keys[key_id] = private_key
+            
+            # 生成私钥文件名
+            filename = f"id_rsa-{server_name}-{username}"
+            
+            return create_success_response({
+                'message': message,
+                'ssh_command': f'ssh {username}@{server["ip"]} -p {server.get("port", 22)}',
+                'key_filename': filename
+            }, message=message)
+        else:
+            return create_error_response(message, 500, 'USER_CREATION_FAILED')
+    except Exception as e:
+        logger.error(f"创建用户错误: {str(e)}", exc_info=True)
+        return create_error_response(f'创建用户时发生错误: {str(e)}', 500, 'INTERNAL_ERROR')
 
 @app.route('/api/get-users/<server_name>', methods=['POST'])
 def get_users(server_name):
-    """获取指定服务器的用户列表"""
-    data = request.get_json()
-    admin_password = data.get('admin_password')
-    
-    # 验证管理员密码
-    if not db.verify_admin('admin', admin_password):
-        return jsonify({'success': False, 'error': '管理员密码错误'})
-    
-    # 查找服务器配置
-    server = db.get_server_by_name(server_name)
-    
-    if not server:
-        return jsonify({'success': False, 'error': '服务器未找到'})
-    
+    """获取指定服务器的用户列表，统一错误处理"""
     try:
-        ssh = connect_ssh(server)
+        data = request.get_json()
+        admin_password = data.get('admin_password')
         
-        # 获取用户列表（排除系统用户）
-        stdin, stdout, stderr = ssh.exec_command("getent passwd | awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' | sort")
-        users_output = stdout.read().decode('utf-8').strip()
+        # 验证管理员密码
+        if not db.verify_admin('admin', admin_password):
+            return create_error_response('管理员密码错误', 401, 'INVALID_PASSWORD')
         
-        if stderr.read().decode('utf-8'):
-            ssh.close()
-            return jsonify({'success': False, 'error': '获取用户列表失败'})
+        # 查找服务器配置
+        server = db.get_server_by_name(server_name)
         
-        users = []
-        if users_output:
-            user_names = users_output.split('\n')
+        if not server:
+            return create_error_response('服务器未找到', 404, 'SERVER_NOT_FOUND')
+        
+        ssh = None
+        try:
+            ssh = connect_ssh(server, use_pool=True)
             
-            # 检查每个用户的sudo权限
-            for username in user_names:
-                if username.strip():
-                    # 检查用户是否在sudo组或sudoers文件中
-                    stdin, stdout, stderr = ssh.exec_command(f"groups {username} | grep -q sudo && echo 'sudo' || echo 'normal'")
-                    sudo_status = stdout.read().decode('utf-8').strip()
-                    
-                    # 如果不在sudo组，检查sudoers文件
-                    if sudo_status == 'normal':
-                        stdin, stdout, stderr = ssh.exec_command(f"sudo grep -q '^{username}.*ALL=(ALL.*) ALL' /etc/sudoers /etc/sudoers.d/* 2>/dev/null && echo 'sudo' || echo 'normal'")
-                        sudoers_status = stdout.read().decode('utf-8').strip()
-                        if sudoers_status == 'sudo':
-                            sudo_status = 'sudo'
-                    
-                    users.append({
-                        'username': username,
-                        'has_sudo': sudo_status == 'sudo'
-                    })
-        
-        ssh.close()
-        return jsonify({'success': True, 'users': users})
-        
+            # 获取用户列表（排除系统用户）
+            stdin, stdout, stderr = ssh.exec_command("getent passwd | awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' | sort", timeout=SSH_COMMAND_TIMEOUT)
+            users_output = stdout.read().decode('utf-8').strip()
+            error_output = stderr.read().decode('utf-8')
+            
+            if error_output:
+                close_ssh(server, ssh, return_to_pool=False)
+                return create_error_response('获取用户列表失败', 500, 'COMMAND_FAILED')
+            
+            users = []
+            if users_output:
+                user_names = users_output.split('\n')
+                
+                # 检查每个用户的sudo权限
+                for username in user_names:
+                    if username.strip():
+                        # 检查用户是否在sudo组或sudoers文件中
+                        stdin, stdout, stderr = ssh.exec_command(f"groups {username} | grep -q sudo && echo 'sudo' || echo 'normal'", timeout=SSH_COMMAND_TIMEOUT)
+                        sudo_status = stdout.read().decode('utf-8').strip()
+                        
+                        # 如果不在sudo组，检查sudoers文件
+                        if sudo_status == 'normal':
+                            stdin, stdout, stderr = ssh.exec_command(f"sudo grep -q '^{username}.*ALL=(ALL.*) ALL' /etc/sudoers /etc/sudoers.d/* 2>/dev/null && echo 'sudo' || echo 'normal'", timeout=SSH_COMMAND_TIMEOUT)
+                            sudoers_status = stdout.read().decode('utf-8').strip()
+                            if sudoers_status == 'sudo':
+                                sudo_status = 'sudo'
+                        
+                        users.append({
+                            'username': username,
+                            'has_sudo': sudo_status == 'sudo'
+                        })
+            
+            close_ssh(server, ssh, return_to_pool=True)
+            return create_success_response({'users': users})
+            
+        except TimeoutError as e:
+            if ssh:
+                close_ssh(server, ssh, return_to_pool=False)
+            logger.error(f"获取用户列表超时: {str(e)}")
+            return create_error_response('获取用户列表超时', 504, 'TIMEOUT')
+        except Exception as e:
+            if ssh:
+                close_ssh(server, ssh, return_to_pool=False)
+            logger.error(f"获取用户列表错误: {str(e)}", exc_info=True)
+            return create_error_response(f'连接服务器失败: {str(e)}', 500, 'CONNECTION_ERROR')
     except Exception as e:
-        return jsonify({'success': False, 'error': f'连接服务器失败: {str(e)}'})
+        logger.error(f"获取用户列表异常: {str(e)}", exc_info=True)
+        return create_error_response('获取用户列表时发生错误', 500, 'INTERNAL_ERROR')
 
 @app.route('/api/delete-user', methods=['POST'])
 def delete_user():
@@ -632,37 +956,44 @@ def get_admin_servers():
 @app.route('/api/admin/servers', methods=['POST'])
 @require_admin
 def add_server():
-    """添加服务器（管理员）"""
-    data = request.get_json()
-    name = data.get('name')
-    ip = data.get('ip')
-    username = data.get('username')
-    password = data.get('password')
-    private_key = data.get('private_key')
-    port = data.get('port', 22)
-    description = data.get('description', '')
-    dedicated_password = data.get('dedicated_password')
-    group = data.get('group', '')
-    
-    # 验证必填字段
-    if not all([name, ip, username]):
-        return jsonify({'success': False, 'error': '名称、IP地址和用户名是必填的'})
-    
-    # 验证密码和密钥至少提供一个
-    if not password and not private_key:
-        return jsonify({'success': False, 'error': '密码和密钥至少需要提供一个'})
-    
-    # 验证IP地址格式
-    ip_pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
-    if not ip_pattern.match(ip):
-        return jsonify({'success': False, 'error': '无效的IP地址格式'})
-    
-    # 验证端口号
-    if not isinstance(port, int) or port < 1 or port > 65535:
-        return jsonify({'success': False, 'error': '端口号必须在1-65535之间'})
-    
-    success, message = db.add_server(name, ip, port, username, password, description, dedicated_password, private_key, group)
-    return jsonify({'success': success, 'message': message if success else message})
+    """添加服务器（管理员），统一错误处理"""
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        ip = data.get('ip')
+        username = data.get('username')
+        password = data.get('password')
+        private_key = data.get('private_key')
+        port = data.get('port', 22)
+        description = data.get('description', '')
+        dedicated_password = data.get('dedicated_password')
+        group = data.get('group', '')
+        
+        # 验证必填字段
+        if not all([name, ip, username]):
+            return create_error_response('名称、IP地址和用户名是必填的', 400, 'MISSING_REQUIRED_FIELDS')
+        
+        # 验证密码和密钥至少提供一个
+        if not password and not private_key:
+            return create_error_response('密码和密钥至少需要提供一个', 400, 'MISSING_CREDENTIALS')
+        
+        # 验证IP地址格式
+        ip_pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+        if not ip_pattern.match(ip):
+            return create_error_response('无效的IP地址格式', 400, 'INVALID_IP_FORMAT')
+        
+        # 验证端口号
+        if not isinstance(port, int) or port < 1 or port > 65535:
+            return create_error_response('端口号必须在1-65535之间', 400, 'INVALID_PORT')
+        
+        success, message = db.add_server(name, ip, port, username, password, description, dedicated_password, private_key, group)
+        if success:
+            return create_success_response(message=message)
+        else:
+            return create_error_response(message, 400, 'ADD_SERVER_FAILED')
+    except Exception as e:
+        logger.error(f"添加服务器错误: {str(e)}", exc_info=True)
+        return create_error_response('添加服务器时发生错误', 500, 'INTERNAL_ERROR')
 
 @app.route('/api/admin/servers/<int:server_id>', methods=['PUT'])
 @require_admin
