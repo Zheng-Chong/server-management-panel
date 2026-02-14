@@ -85,35 +85,94 @@
 
         .server-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(650px, 1fr));
-            gap: 25px;
-            margin-top: 30px;
-            padding: 0 20px;
-            max-width: 1400px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        
-        @media (max-width: 1400px) {
-            .server-grid {
-                grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
-            }
-        }
-        
-        @media (max-width: 1200px) {
-            .server-grid {
-                grid-template-columns: 1fr;
-            }
+            grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+            gap: 20px;
+            margin-top: 0;
+            padding: 0;
         }
 
+        /* Accordion 分组样式 */
+        .server-accordion {
+            width: 100%;
+            max-width: 1400px;
+            margin: 24px auto 0;
+            padding: 0 16px;
+        }
+        .accordion-group {
+            margin-bottom: 1.5rem;
+            background: hsl(217, 19%, 10%);
+            border-radius: 12px;
+            border: 1px solid hsl(217, 19%, 20%);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .accordion-group:hover {
+            border-color: hsl(217, 19%, 30%);
+        }
+        .accordion-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            background: hsl(217, 19%, 15%);
+            border-bottom: 1px solid hsl(217, 19%, 20%);
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.3s ease;
+        }
+        .accordion-header:hover {
+            background: hsl(217, 19%, 18%);
+        }
+        .accordion-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .accordion-toggle-icon {
+            color: hsl(142, 71%, 45%);
+            font-size: 0.9rem;
+            transition: transform 0.3s ease;
+        }
+        .accordion-group.collapsed .accordion-toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .accordion-title {
+            color: hsl(142, 71%, 45%);
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin: 0;
+        }
+        .accordion-count {
+            color: hsl(210, 20%, 75%);
+            font-size: 0.9rem;
+            font-weight: normal;
+        }
+        .accordion-content {
+            padding: 1rem;
+            display: block;
+        }
+        @media (min-width: 768px) {
+            .accordion-content { padding: 1.5rem; }
+        }
+        .accordion-group.collapsed .accordion-content {
+            display: none;
+        }
+        
         .server-card {
             background: hsl(217, 19%, 12%);
-            border-radius: 16px;
-            padding: 25px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            min-width: 0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
             border: 1px solid hsl(217, 19%, 20%);
             transition: all 0.3s ease;
             position: relative;
+        }
+        @media (min-width: 768px) {
+            .server-card {
+                padding: 20px;
+                border-radius: 16px;
+            }
         }
 
         .server-card:hover {
@@ -124,14 +183,18 @@
 
         .server-name {
             color: hsl(210, 40%, 98%);
-            font-size: 1.4em;
+            font-size: 1.2em;
             font-weight: 600;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            flex-wrap: wrap;
+            gap: 8px;
             border-bottom: 1px solid hsl(217, 19%, 25%);
+        }
+        @media (min-width: 768px) {
+            .server-name { font-size: 1.4em; margin-bottom: 15px; padding-bottom: 10px; gap: 12px; }
         }
 
         .server-ip-badge {
@@ -146,15 +209,15 @@
 
         .server-create-user-btn {
             position: absolute;
-            top: 20px;
-            right: 20px;
+            top: 12px;
+            right: 12px;
             background: hsl(217, 19%, 12%);
             color: hsl(210, 40%, 98%);
             border: 2px solid hsl(217, 19%, 25%);
-            padding: 8px 16px;
+            padding: 6px 12px;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 0.85em;
+            font-size: 0.8em;
             font-weight: 500;
             transition: all 0.3s ease;
             display: flex;
@@ -171,8 +234,9 @@
         }
 
         .status-section {
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
+        .status-section:last-child { margin-bottom: 0; }
 
         .status-title {
             color: hsl(210, 40%, 98%);
@@ -258,14 +322,19 @@
         .gpu-container {
             background: hsl(217, 19%, 10%);
             border-radius: 8px;
-            padding: 12px;
+            padding: 10px 12px;
             font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Source Code Pro', 'Courier New', monospace;
             border: 1px solid hsl(217, 19%, 20%);
-            font-size: 0.8em;
+            font-size: 0.75em;
             font-weight: 400;
-            line-height: 0.8;
+            line-height: 1.4;
             white-space: nowrap;
             overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            max-width: 100%;
+        }
+        @media (min-width: 768px) {
+            .gpu-container { font-size: 0.8em; padding: 12px; }
         }
 
         /* GPU容器滚动条样式 */
@@ -573,7 +642,7 @@
             </div>
         </div>
         
-        <div id="server-container" class="server-grid">
+        <div id="server-container" class="server-accordion">
             <div style="text-align: center; color: #888;">正在加载服务器状态...</div>
         </div>
     </div>
@@ -807,7 +876,7 @@
                 });
         }
 
-        // 显示服务器信息
+        // 显示服务器信息（按分组 Accordion 折叠展示）
         function displayServers() {
             const container = document.getElementById('server-container');
             
@@ -816,73 +885,109 @@
                 return;
             }
 
-            let html = '';
-            
+            // 按分组归类
+            const grouped = {};
             for (const [serverName, status] of Object.entries(server_status)) {
-                // 解析磁盘使用情况
-                const diskData = parseDiskUsage(status.disk_usage);
-                
-                // 解析GPU状态
-                const gpuData = parseGPUStatus(status.gpu_status);
-                
+                const group = status.group || '默认分组';
+                if (!grouped[group]) grouped[group] = [];
+                grouped[group].push({ serverName, status });
+            }
+            const groupNames = Object.keys(grouped).sort();
+
+            let html = '';
+            groupNames.forEach((groupName, idx) => {
+                const items = grouped[groupName];
+                const groupId = 'accordion-group-' + idx;
+                const isCollapsed = localStorage.getItem('accordion-' + groupName) === 'true';
                 html += `
-                    <div class="server-card">
-                        <button class="server-create-user-btn" onclick="showCreateUserModal('${status.name}', '${status.ip}', ${status.port})">
-                            <i class="fas fa-user-plus"></i> 创建用户
-                        </button>
-                        
-                        <div class="server-name">
-                            <i class="fas fa-server"></i>
-                            ${status.name}
-                            <span class="server-ip-badge">${status.ip}</span>
-                        </div>
-
-                        <div class="status-section">
-                            <div class="status-title">
-                                <div class="status-title-left">
-                                    <i class="fas fa-hdd"></i> 磁盘使用情况
-                                </div>
-                                <span class="status-timestamp">${status.timestamp}</span>
-                            </div>
-                            <div class="disk-usage">
-                                ${diskData.map(disk => {
-                                    const usePercent = parseInt(disk.usePercent);
-                                    let progressClass = 'low';
-                                    if (usePercent > 80) progressClass = 'high';
-                                    else if (usePercent > 60) progressClass = 'medium';
-                                    
-                                    return `
-                                        <div class="disk-item">
-                                            <div class="progress-header">
-                                                <span>${disk.mountPoint || disk.filesystem}</span>
-                                                <span style="color: hsl(210, 20%, 75%);">${disk.used} / ${disk.size}</span>
-                                            </div>
-                                            <div class="progress-bar">
-                                                <div class="progress-fill ${progressClass}" style="width: ${usePercent}%"></div>
-                                                <div class="progress-text">${usePercent}%</div>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join('')}
+                    <div class="accordion-group ${isCollapsed ? 'collapsed' : ''}" data-group="${groupName}" id="${groupId}">
+                        <div class="accordion-header" onclick="toggleAccordion('${groupName}')">
+                            <div class="accordion-header-left">
+                                <i class="fas fa-chevron-down accordion-toggle-icon"></i>
+                                <h3 class="accordion-title">${groupName}</h3>
+                                <span class="accordion-count">(${items.length} 台)</span>
                             </div>
                         </div>
-
-                        <div class="status-section">
-                            <div class="status-title">
-                                <div class="status-title-left">
-                                    <i class="fas fa-microchip"></i> GPU 状态
-                                </div>
-                                <span class="status-timestamp">${status.timestamp}</span>
-                            </div>
-                            <div class="gpu-container">
-                                ${gpuData.length > 0 ? formatGPUDisplay(gpuData) : parseAnsiColors(status.gpu_status)}
+                        <div class="accordion-content">
+                            <div class="server-grid">
+                                ${items.map(({ status }) => renderServerCard(status)).join('')}
                             </div>
                         </div>
                     </div>
                 `;
-            }
-            
+            });
             container.innerHTML = html;
+        }
+
+        function renderServerCard(status) {
+            const diskData = parseDiskUsage(status.disk_usage);
+            const gpuData = parseGPUStatus(status.gpu_status);
+            return `
+                <div class="server-card">
+                    <button class="server-create-user-btn" onclick="showCreateUserModal('${escapeJs(status.name)}', '${escapeJs(status.ip)}', ${status.port})">
+                        <i class="fas fa-user-plus"></i> 创建用户
+                    </button>
+                    <div class="server-name">
+                        <i class="fas fa-server"></i>
+                        ${escapeHtml(status.name)}
+                        <span class="server-ip-badge">${escapeHtml(status.ip)}</span>
+                    </div>
+                    <div class="status-section">
+                        <div class="status-title">
+                            <div class="status-title-left"><i class="fas fa-hdd"></i> 磁盘使用情况</div>
+                            <span class="status-timestamp">${escapeHtml(status.timestamp)}</span>
+                        </div>
+                        <div class="disk-usage">
+                            ${diskData.map(disk => {
+                                const usePercent = parseInt(disk.usePercent);
+                                let progressClass = usePercent > 80 ? 'high' : (usePercent > 60 ? 'medium' : 'low');
+                                return `
+                                    <div class="disk-item">
+                                        <div class="progress-header">
+                                            <span>${escapeHtml(disk.mountPoint || disk.filesystem)}</span>
+                                            <span style="color: hsl(210, 20%, 75%);">${escapeHtml(disk.used)} / ${escapeHtml(disk.size)}</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill ${progressClass}" style="width: ${usePercent}%"></div>
+                                            <div class="progress-text">${usePercent}%</div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div class="status-section">
+                        <div class="status-title">
+                            <div class="status-title-left"><i class="fas fa-microchip"></i> GPU 状态</div>
+                            <span class="status-timestamp">${escapeHtml(status.timestamp)}</span>
+                        </div>
+                        <div class="gpu-container">
+                            ${gpuData.length > 0 ? formatGPUDisplay(gpuData) : parseAnsiColors(status.gpu_status)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+        function escapeJs(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/"/g, '\\"');
+        }
+
+        function toggleAccordion(groupName) {
+            const el = document.querySelector(`.accordion-group[data-group="${groupName}"]`);
+            if (!el) return;
+            const collapsed = el.classList.toggle('collapsed');
+            localStorage.setItem('accordion-' + groupName, collapsed);
         }
 
         // 页面加载时开始更新

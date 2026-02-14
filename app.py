@@ -371,13 +371,14 @@ def get_server_status(server):
         'name': server['name'],
         'ip': server['ip'],
         'port': server.get('port', 22),
+        'group': server.get('group', '') or '',
         'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
         'disk_usage': 'Loading...',
         'gpu_status': 'Loading...'
     }
     
     # 获取磁盘使用情况
-    disk_output = execute_ssh_command(server, 'df -h')
+    disk_output = execute_ssh_command(server, "df -h | grep -vE '/sys|/snap'")
     status['disk_usage'] = disk_output
     
     # 检查并安装 gpustat（如果未安装）
@@ -411,6 +412,7 @@ def update_single_server(server, timeout=SSH_COMMAND_TIMEOUT * 3):
             'name': server['name'],
             'ip': server['ip'],
             'port': server.get('port', 22),
+            'group': server.get('group', '') or '',
             'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
             'disk_usage': f'Timeout Error: 操作超时',
             'gpu_status': f'Timeout Error: 操作超时'
@@ -422,6 +424,7 @@ def update_single_server(server, timeout=SSH_COMMAND_TIMEOUT * 3):
             'name': server['name'],
             'ip': server['ip'],
             'port': server.get('port', 22),
+            'group': server.get('group', '') or '',
             'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
             'disk_usage': f'Error: {str(e)}',
             'gpu_status': f'Error: {str(e)}'
@@ -487,6 +490,7 @@ def update_all_servers():
                             'name': server['name'],
                             'ip': server['ip'],
                             'port': server.get('port', 22),
+                            'group': server.get('group', '') or '',
                             'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
                             'disk_usage': f'Error: {str(e)}',
                             'gpu_status': f'Error: {str(e)}'
@@ -502,6 +506,7 @@ def update_all_servers():
                         'name': server['name'],
                         'ip': server['ip'],
                         'port': server.get('port', 22),
+                        'group': server.get('group', '') or '',
                         'timestamp': datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S'),
                         'disk_usage': 'Timeout Error: 更新超时',
                         'gpu_status': 'Timeout Error: 更新超时'
@@ -594,22 +599,77 @@ def change_admin_password():
         logger.error(f"修改管理员密码错误: {str(e)}", exc_info=True)
         return create_error_response('修改密码时发生错误', 500, 'INTERNAL_ERROR')
 
+@app.route('/api/admin/groups', methods=['GET'])
+@require_admin
+def get_groups():
+    """获取所有服务器分组"""
+    groups = db.get_all_groups()
+    return create_success_response({'groups': groups})
+
+@app.route('/api/admin/groups', methods=['POST'])
+@require_admin
+def add_group():
+    """添加服务器分组"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        if not name:
+            return create_error_response('分组名称不能为空', 400, 'MISSING_NAME')
+        success, message = db.add_group(name)
+        if success:
+            return create_success_response(message=message)
+        return create_error_response(message, 400, 'ADD_GROUP_FAILED')
+    except Exception as e:
+        logger.error(f"添加分组错误: {str(e)}", exc_info=True)
+        return create_error_response('添加分组时发生错误', 500, 'INTERNAL_ERROR')
+
+@app.route('/api/admin/groups/<int:group_id>', methods=['PUT'])
+@require_admin
+def update_group(group_id):
+    """更新服务器分组"""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        if not name:
+            return create_error_response('分组名称不能为空', 400, 'MISSING_NAME')
+        success, message = db.update_group(group_id, name)
+        if success:
+            return create_success_response(message=message)
+        return create_error_response(message, 400, 'UPDATE_GROUP_FAILED')
+    except Exception as e:
+        logger.error(f"更新分组错误: {str(e)}", exc_info=True)
+        return create_error_response('更新分组时发生错误', 500, 'INTERNAL_ERROR')
+
+@app.route('/api/admin/groups/<int:group_id>', methods=['DELETE'])
+@require_admin
+def delete_group(group_id):
+    """删除服务器分组"""
+    success, message = db.delete_group(group_id)
+    if success:
+        return create_success_response(message=message)
+    return create_error_response(message, 400, 'DELETE_GROUP_FAILED')
+
 @app.route('/api/admin/generate-auth-code', methods=['POST'])
 @require_admin
 def admin_generate_auth_code():
-    """管理员生成授权码（无需再次验证密码）"""
-    # 生成授权码
+    """管理员生成授权码（可选按分组限制）"""
+    data = request.get_json() or {}
+    group = data.get('group', '').strip()
     auth_code = secrets.token_hex(16)
     auth_codes[auth_code] = {
         'created_at': datetime.now(CST),
-        'expires_in': 1800  # 30分钟 = 1800秒
+        'expires_in': 1800,
+        'group': group if group else None
     }
-    
+    msg = '授权码生成成功，有效期30分钟'
+    if group:
+        msg = f'授权码生成成功（仅限分组「{group}」），有效期30分钟'
     return jsonify({
-        'success': True, 
+        'success': True,
         'auth_code': auth_code,
         'expires_in': 1800,
-        'message': '授权码生成成功，有效期30分钟'
+        'group': group or None,
+        'message': msg
     })
 
 @app.route('/api/status')
@@ -618,21 +678,22 @@ def get_status():
 
 
 
-def verify_auth_code(auth_code):
-    """验证授权码是否有效"""
+def verify_auth_code(auth_code, server=None):
+    """验证授权码是否有效，可选校验分组限制"""
     if auth_code not in auth_codes:
         return False
-    
     code_info = auth_codes[auth_code]
     current_time = datetime.now(CST)
-    
-    # 检查是否过期
     time_diff = (current_time - code_info['created_at']).total_seconds()
     if time_diff > code_info['expires_in']:
-        # 删除过期的授权码
         del auth_codes[auth_code]
         return False
-    
+    # 若授权码限定了分组，则校验服务器是否属于该分组
+    code_group = code_info.get('group')
+    if code_group and server:
+        server_group = (server.get('group') or '').strip()
+        if server_group != code_group:
+            return False
     return True
 
 @app.route('/api/get-auth-code', methods=['POST'])
@@ -719,9 +780,8 @@ def create_user():
             if auth_code != server.get('dedicated_password'):
                 return create_error_response('专用密码错误', 401, 'INVALID_PASSWORD')
         else:
-            # 如果没有设置专用密码，使用正常的授权码验证
-            if not verify_auth_code(auth_code):
-                return create_error_response('授权码无效或已过期', 401, 'INVALID_AUTH_CODE')
+            if not verify_auth_code(auth_code, server):
+                return create_error_response('授权码无效或已过期，或该授权码不适用于此服务器分组', 401, 'INVALID_AUTH_CODE')
             
             # 立即删除授权码（单次有效）
             if auth_code in auth_codes:
@@ -946,6 +1006,29 @@ def manage_sudo():
     except Exception as e:
         return jsonify({'success': False, 'error': f'连接服务器失败: {str(e)}'})
 
+@app.route('/api/admin/servers/search')
+@require_admin
+def search_admin_servers():
+    """按名称搜索服务器（管理员）"""
+    q = request.args.get('q', '').strip()
+    if not q:
+        return create_success_response({'servers': []})
+    servers = db.search_servers_by_name(q)
+    return create_success_response({'servers': servers})
+
+@app.route('/api/admin/servers/check-name')
+@require_admin
+def check_server_name_exists():
+    """直接查询数据库检查名称是否存在（用于调试重名）"""
+    q = request.args.get('q', '').strip()
+    if not q:
+        return create_success_response({'found': [], 'message': '请输入搜索关键词'})
+    rows = db.get_servers_raw_by_name(q)
+    return create_success_response({
+        'found': rows,
+        'message': f'数据库中共找到 {len(rows)} 条名称包含「{q}」的记录' if rows else f'数据库中未找到名称包含「{q}」的记录'
+    })
+
 @app.route('/api/admin/servers', methods=['GET'])
 @require_admin
 def get_admin_servers():
@@ -959,7 +1042,7 @@ def add_server():
     """添加服务器（管理员），统一错误处理"""
     try:
         data = request.get_json()
-        name = data.get('name')
+        name = (data.get('name') or '').strip()
         ip = data.get('ip')
         username = data.get('username')
         password = data.get('password')

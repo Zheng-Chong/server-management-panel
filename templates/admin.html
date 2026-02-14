@@ -299,7 +299,8 @@
         }
 
         .form-group input,
-        .form-group textarea {
+        .form-group textarea,
+        .form-group select {
             width: 100%;
             padding: 0.8rem;
             background: hsl(217, 19%, 20%);
@@ -311,11 +312,29 @@
         }
 
         .form-group input:focus,
-        .form-group textarea:focus {
+        .form-group textarea:focus,
+        .form-group select:focus {
             outline: none;
             border-color: hsl(142, 71%, 45%);
             box-shadow: 0 0 0 3px hsla(142, 71%, 45%, 0.1);
         }
+
+        .groups-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+        .group-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: hsl(217, 19%, 18%);
+            border-radius: 8px;
+            border: 1px solid hsl(217, 19%, 25%);
+        }
+        .group-item-name { font-weight: 500; }
+        .group-item-actions { display: flex; gap: 0.4rem; }
 
         .form-group textarea {
             resize: vertical;
@@ -469,15 +488,38 @@
         <!-- 消息显示 -->
         <div id="message-container"></div>
 
+        <!-- 服务器分组管理 -->
+        <div class="admin-section">
+            <div class="section-header">
+                <h2 class="section-title">
+                    <i class="fas fa-layer-group"></i> 服务器分组管理
+                </h2>
+                <button class="btn btn-primary" onclick="showAddGroupModal()">
+                    <i class="fas fa-plus"></i> 添加分组
+                </button>
+            </div>
+            <div id="groups-content">
+                <div class="loading"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+            </div>
+        </div>
+
         <!-- 服务器列表 -->
         <div class="admin-section">
             <div class="section-header">
                 <h2 class="section-title">
                     <i class="fas fa-server"></i> 服务器列表
                 </h2>
-                <button class="btn btn-primary" onclick="showAddServerModal()">
-                    <i class="fas fa-plus"></i> 添加服务器
-                </button>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <input type="text" id="server-search-input" placeholder="搜索服务器名称（如 20847）" 
+                        style="padding: 0.5rem 1rem; background: hsl(217, 19%, 20%); border: 1px solid hsl(217, 19%, 25%); border-radius: 8px; color: hsl(210, 40%, 98%); font-size: 0.9rem; min-width: 200px;"
+                        onkeyup="if(event.key==='Enter')searchServers()">
+                    <button class="btn btn-secondary" onclick="searchServers()">
+                        <i class="fas fa-search"></i> 搜索
+                    </button>
+                    <button class="btn btn-primary" onclick="showAddServerModal()">
+                        <i class="fas fa-plus"></i> 添加服务器
+                    </button>
+                </div>
             </div>
 
             <div id="servers-content">
@@ -493,9 +535,14 @@
                 <h2 class="section-title">
                     <i class="fas fa-key"></i> 授权码管理
                 </h2>
-                <button class="btn btn-primary" onclick="generateAuthCode()">
-                    <i class="fas fa-plus"></i> 生成授权码
-                </button>
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <select id="auth-code-group" style="padding: 0.6rem 1rem; background: hsl(217, 19%, 20%); border: 1px solid hsl(217, 19%, 25%); border-radius: 8px; color: hsl(210, 40%, 98%); font-size: 0.9rem;">
+                        <option value="">全部服务器（不限分组）</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="generateAuthCode()">
+                        <i class="fas fa-plus"></i> 生成授权码
+                    </button>
+                </div>
             </div>
 
             <div id="auth-code-section">
@@ -539,6 +586,26 @@
         </div>
     </div>
 
+
+    <!-- 添加/编辑分组模态框 -->
+    <div id="group-modal" class="modal">
+        <div class="modal-content" style="max-width: 450px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="group-modal-title">添加分组</h3>
+                <button class="close-btn" onclick="closeGroupModal()">&times;</button>
+            </div>
+            <div class="form-group">
+                <label for="group-name-input">分组名称</label>
+                <input type="text" id="group-name-input" placeholder="输入分组名称">
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeGroupModal()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveGroup()">
+                    <i class="fas fa-save"></i> 保存
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- 添加/编辑服务器模态框 -->
     <div id="server-modal" class="modal">
@@ -602,9 +669,11 @@
 
                 <div class="form-group">
                     <label for="server-group">分组</label>
-                    <input type="text" id="server-group" placeholder="服务器分组（可选，留空则显示在默认组）">
+                    <select id="server-group">
+                        <option value="">默认分组（不归属）</option>
+                    </select>
                     <small style="color: hsl(210, 20%, 75%); font-size: 0.8em; margin-top: 5px; display: block;">
-                        用于对服务器进行分类管理，相同分组的服务器会显示在一起
+                        从上方分组管理中添加分组后在此选择
                     </small>
                 </div>
 
@@ -750,12 +819,179 @@
 
     <script>
         let servers = [];
+        let groups = [];
         let currentServerId = null;
+        let currentGroupId = null;
 
-        // 页面加载时获取服务器列表
         document.addEventListener('DOMContentLoaded', function() {
             loadServers();
+            loadGroups();
         });
+
+        // 加载分组列表
+        async function loadGroups() {
+            try {
+                const response = await fetch('/api/admin/groups');
+                const result = await response.json();
+                if (result.success) {
+                    groups = result.data.groups || [];
+                    renderGroups();
+                    populateGroupDropdowns();
+                }
+            } catch (error) {
+                document.getElementById('groups-content').innerHTML = '<div class="message error">加载分组失败</div>';
+            }
+        }
+
+        function renderGroups() {
+            const container = document.getElementById('groups-content');
+            if (groups.length === 0) {
+                container.innerHTML = '<p style="color: hsl(210, 20%, 75%);">暂无分组，点击上方按钮添加</p>';
+                return;
+            }
+            container.innerHTML = `
+                <div class="groups-list">
+                    ${groups.map(g => `
+                        <div class="group-item">
+                            <span class="group-item-name">${escapeHtml(g.name)}</span>
+                            <div class="group-item-actions">
+                                <button class="btn btn-secondary btn-small" onclick="editGroup(${g.id}, '${escapeJs(g.name)}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-danger btn-small" onclick="deleteGroup(${g.id}, '${escapeJs(g.name)}')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function populateGroupDropdowns() {
+            const opts = groups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`).join('');
+            const serverSelect = document.getElementById('server-group');
+            const authSelect = document.getElementById('auth-code-group');
+            const baseServerOpts = '<option value="">默认分组（不归属）</option>' + opts;
+            const baseAuthOpts = '<option value="">全部服务器（不限分组）</option>' + opts;
+            serverSelect.innerHTML = baseServerOpts;
+            authSelect.innerHTML = baseAuthOpts;
+        }
+
+        function escapeHtml(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+        function escapeJs(str) {
+            return String(str).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+        }
+
+        function showAddGroupModal() {
+            currentGroupId = null;
+            document.getElementById('group-modal-title').textContent = '添加分组';
+            document.getElementById('group-name-input').value = '';
+            document.getElementById('group-modal').style.display = 'flex';
+        }
+
+        function closeGroupModal() {
+            document.getElementById('group-modal').style.display = 'none';
+            currentGroupId = null;
+        }
+
+        function editGroup(id, name) {
+            currentGroupId = id;
+            document.getElementById('group-modal-title').textContent = '编辑分组';
+            document.getElementById('group-name-input').value = name;
+            document.getElementById('group-modal').style.display = 'flex';
+        }
+
+        async function saveGroup() {
+            const name = document.getElementById('group-name-input').value.trim();
+            if (!name) {
+                showMessage('error', '请输入分组名称');
+                return;
+            }
+            try {
+                const url = currentGroupId ? `/api/admin/groups/${currentGroupId}` : '/api/admin/groups';
+                const method = currentGroupId ? 'PUT' : 'POST';
+                const body = currentGroupId ? { name } : { name };
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('success', result.message);
+                    closeGroupModal();
+                    loadGroups();
+                    loadServers();
+                } else {
+                    showMessage('error', result.error || result.message);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        async function deleteGroup(id, name) {
+            if (!confirm(`确定要删除分组「${name}」吗？该分组下的服务器将变为默认分组。`)) return;
+            try {
+                const response = await fetch(`/api/admin/groups/${id}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('success', result.message);
+                    loadGroups();
+                    loadServers();
+                } else {
+                    showMessage('error', result.error || result.message);
+                }
+            } catch (error) {
+                showMessage('error', '网络请求失败');
+            }
+        }
+
+        let serverSearchFilter = '';
+
+        async function checkNameInDb() {
+            const q = (document.getElementById('server-search-input') || {}).value.trim();
+            if (!q) { showMessage('error', '请先在搜索框输入要检查的名称'); return; }
+            const resultEl = document.getElementById('check-name-result');
+            if (resultEl) resultEl.innerHTML = '<span style="color:hsl(210,20%,75%)"><i class="fas fa-spinner fa-spin"></i> 正在查询数据库...</span>';
+            try {
+                const res = await fetch('/api/admin/servers/check-name?q=' + encodeURIComponent(q));
+                const data = await res.json();
+                if (resultEl) {
+                    if (data.success && data.data) {
+                        const found = data.data.found || [];
+                        resultEl.innerHTML = found.length ? `
+                            <div style="background:hsl(217,19%,15%); padding:12px; border-radius:8px; margin-top:8px;">
+                                <strong>${data.data.message}</strong>
+                                <table class="server-table" style="margin-top:10px; font-size:0.85em">
+                                    <tr><th>ID</th><th>名称</th><th>IP</th><th>端口</th><th>分组</th></tr>
+                                    ${found.map(s => '<tr><td>'+s.id+'</td><td>'+escapeHtml(s.name)+'</td><td>'+escapeHtml(s.ip)+'</td><td>'+s.port+'</td><td>'+escapeHtml(s.group||'')+'</td></tr>').join('')}
+                                </table>
+                            </div>
+                        ` : '<div style="color:hsl(142,71%,45%); margin-top:8px">'+data.data.message+'</div>';
+                    } else {
+                        resultEl.innerHTML = '<span style="color:hsl(0,84%,60%)">查询失败</span>';
+                    }
+                }
+            } catch (e) {
+                if (resultEl) resultEl.innerHTML = '<span style="color:hsl(0,84%,60%)">请求失败</span>';
+            }
+        }
+
+        async function searchServers() {
+            const input = document.getElementById('server-search-input');
+            serverSearchFilter = (input ? input.value : '').trim();
+            renderServers();
+            if (serverSearchFilter && servers.length > 0) {
+                const matched = servers.filter(s => (s.name || '').toLowerCase().includes(serverSearchFilter.toLowerCase()));
+                matched.forEach(s => localStorage.setItem(`group-${(s.group || '默认分组')}-collapsed`, 'false'));
+            }
+        }
 
         // 加载服务器列表
         async function loadServers() {
@@ -789,9 +1025,31 @@
                 return;
             }
 
+            let displayServers = servers;
+            if (serverSearchFilter) {
+                const kw = serverSearchFilter.toLowerCase();
+                displayServers = servers.filter(s => (s.name || '').toLowerCase().includes(kw));
+                if (displayServers.length === 0) {
+                    container.innerHTML = `
+                        <div class="message error">
+                            未找到名称包含「${serverSearchFilter}」的服务器。
+                            如添加时提示已存在，可点击「深度检查」直接查询数据库。
+                            <div style="margin-top:10px">
+                                <button class="btn btn-secondary" onclick="checkNameInDb()">
+                                    <i class="fas fa-database"></i> 深度检查
+                                </button>
+                                <button class="btn btn-secondary" onclick="document.getElementById('server-search-input').value=''; serverSearchFilter=''; renderServers();">清除搜索</button>
+                            </div>
+                            <div id="check-name-result" style="margin-top:10px"></div>
+                        </div>
+                    `;
+                    return;
+                }
+            }
+
             // 按组分类服务器
             const groupedServers = {};
-            servers.forEach(server => {
+            displayServers.forEach(server => {
                 const groupName = server.group || '默认分组';
                 if (!groupedServers[groupName]) {
                     groupedServers[groupName] = [];
@@ -801,12 +1059,15 @@
 
             // 生成HTML
             let html = '';
+            if (serverSearchFilter) {
+                html += `<div style="margin-bottom:1rem; color:hsl(210,20%,75%); font-size:0.9em">找到 ${displayServers.length} 台匹配的服务器 <button class="btn btn-secondary btn-small" onclick="document.getElementById('server-search-input').value=''; serverSearchFilter=''; renderServers();">清除搜索</button></div>`;
+            }
             const groupNames = Object.keys(groupedServers).sort();
             
             groupNames.forEach((groupName, groupIndex) => {
                 const groupServers = groupedServers[groupName];
                 const groupId = `group-${groupIndex}`;
-                const isCollapsed = localStorage.getItem(`group-${groupName}-collapsed`) === 'true';
+                const isCollapsed = serverSearchFilter ? false : (localStorage.getItem(`group-${groupName}-collapsed`) === 'true');
                 
                 html += `
                     <div class="server-group" data-group="${groupName}">
@@ -881,6 +1142,7 @@
         // 显示添加服务器模态框
         function showAddServerModal() {
             currentServerId = null;
+            populateGroupDropdowns();
             document.getElementById('modal-title').textContent = '添加服务器';
             document.getElementById('submit-btn').innerHTML = '<i class="fas fa-save"></i> 添加';
             document.getElementById('server-form').reset();
@@ -998,11 +1260,16 @@
         let currentGenerateTime = null;
         let currentExpireTime = null;
 
+        let currentAuthCodeGroup = null;
+
         async function generateAuthCode() {
             try {
+                const groupSelect = document.getElementById('auth-code-group');
+                const group = groupSelect ? (groupSelect.value || '').trim() : '';
                 const response = await fetch('/api/admin/generate-auth-code', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group: group })
                 });
 
                 const result = await response.json();
@@ -1010,14 +1277,15 @@
                 if (result.success) {
                     const now = new Date();
                     const expireTime = new Date(now.getTime() + result.expires_in * 1000);
-                    
-                    // 保存当前授权码信息
                     currentAuthCode = result.auth_code;
                     currentGenerateTime = now;
                     currentExpireTime = expireTime;
-                    
+                    currentAuthCodeGroup = group || null;
+
+                    const groupHint = group ? `<p style="color: hsl(142, 71%, 45%); margin-bottom: 0.5rem;"><strong>仅限分组「${escapeHtml(group)}」</strong></p>` : '';
                     document.getElementById('auth-code-section').innerHTML = `
                         <div style="background: hsl(217, 19%, 15%); padding: 1.5rem; border-radius: 8px; border: 1px solid hsl(217, 19%, 25%);">
+                            ${groupHint}
                             <div style="margin-bottom: 1rem;">
                                 <strong style="color: hsl(142, 71%, 45%);">授权码：</strong>
                                 <code style="background: hsl(217, 19%, 20%); padding: 0.5rem; border-radius: 4px; color: hsl(210, 40%, 98%); font-family: monospace;">${result.auth_code}</code>
@@ -1028,7 +1296,7 @@
                             </div>
                             <div style="font-size: 0.9rem; color: hsl(210, 20%, 75%); line-height: 1.5;">
                                 <p><strong>使用说明：</strong></p>
-                                <p>1. 访问主页面的任意服务器卡片</p>
+                                <p>1. 访问主页面的${group ? '该分组下' : ''}的服务器卡片</p>
                                 <p>2. 点击"创建用户"按钮</p>
                                 <p>3. 在弹出的对话框中输入此授权码</p>
                                 <p>4. 授权码仅可使用一次，30分钟后自动失效</p>
@@ -1054,10 +1322,9 @@
                 showMessage('error', '没有可复制的授权码信息');
                 return;
             }
-
+            const groupLine = currentAuthCodeGroup ? `【限定分组】${currentAuthCodeGroup}\n\n` : '';
             const instructionText = `【授权码】${currentAuthCode}
-
-【使用说明】
+${groupLine}【使用说明】
 -- 访问主页面选择任意服务器
 -- 点击服务器卡片上的"创建用户"按钮
 -- 在弹出的对话框中输入此授权码

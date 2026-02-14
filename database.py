@@ -86,10 +86,31 @@ class DatabaseManager:
                 )
             ''')
             
+            # 创建服务器分组表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS server_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 迁移：将现有服务器的分组导入 server_groups
+            cursor.execute('SELECT DISTINCT server_group FROM servers WHERE server_group IS NOT NULL AND server_group != ""')
+            existing_groups = cursor.fetchall()
+            for (group_name,) in existing_groups:
+                try:
+                    cursor.execute('INSERT OR IGNORE INTO server_groups (name) VALUES (?)', (group_name,))
+                except Exception:
+                    pass
+            
             conn.commit()
     
     def add_server(self, name, ip, port, username, password=None, description='', dedicated_password=None, private_key=None, group=''):
         """添加服务器"""
+        name = (name or '').strip()
+        if not name:
+            return False, "服务器名称不能为空"
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -110,9 +131,40 @@ class DatabaseManager:
                 conn.commit()
                 return True, "服务器添加成功"
         except sqlite3.IntegrityError:
+            existing = self.get_server_by_name(name)
+            if existing:
+                group_hint = f"（分组：{existing.get('group') or '默认'}）" if existing.get('group') else "（默认分组）"
+                return False, f"服务器名称已存在{group_hint}，请检查是否在折叠的分组中"
             return False, "服务器名称已存在"
         except Exception as e:
             return False, f"添加服务器失败: {str(e)}"
+    
+    def search_servers_by_name(self, keyword):
+        """按名称模糊搜索服务器"""
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return []
+        all_servers = self.get_all_servers()
+        kw = str(keyword).lower()
+        return [s for s in all_servers if kw in str(s.get('name') or '').lower()]
+
+    def get_servers_raw_by_name(self, keyword):
+        """直接从数据库按名称模糊查询（用于调试重名问题）"""
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return []
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT id, name, ip, port, server_group FROM servers WHERE name LIKE ?',
+                    (f'%{keyword}%',)
+                )
+                return [{'id': r[0], 'name': r[1], 'ip': r[2], 'port': r[3], 'group': r[4] or ''}
+                    for r in cursor.fetchall()]
+        except Exception as e:
+            print(f"raw name query error: {e}")
+            return []
     
     def get_all_servers(self):
         """获取所有服务器（解密后）"""
@@ -314,6 +366,71 @@ class DatabaseManager:
         
         except Exception as e:
             return False, f"迁移失败: {str(e)}"
+    
+    def get_all_groups(self):
+        """获取所有服务器分组"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT id, name, created_at FROM server_groups ORDER BY name')
+                rows = cursor.fetchall()
+                return [{'id': r[0], 'name': r[1], 'created_at': r[2]} for r in rows]
+        except Exception as e:
+            print(f"获取分组列表失败: {str(e)}")
+            return []
+    
+    def add_group(self, name):
+        """添加服务器分组"""
+        try:
+            name = name.strip()
+            if not name:
+                return False, "分组名称不能为空"
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('INSERT INTO server_groups (name) VALUES (?)', (name,))
+                conn.commit()
+                return True, "分组添加成功"
+        except sqlite3.IntegrityError:
+            return False, "分组名称已存在"
+        except Exception as e:
+            return False, f"添加分组失败: {str(e)}"
+    
+    def update_group(self, group_id, name):
+        """更新服务器分组"""
+        try:
+            name = name.strip()
+            if not name:
+                return False, "分组名称不能为空"
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT name FROM server_groups WHERE id = ?', (group_id,))
+                old = cursor.fetchone()
+                if not old:
+                    return False, "分组不存在"
+                cursor.execute('UPDATE servers SET server_group = ? WHERE server_group = ?', (name, old[0]))
+                cursor.execute('UPDATE server_groups SET name = ? WHERE id = ?', (name, group_id))
+                conn.commit()
+                return True, "分组更新成功"
+        except sqlite3.IntegrityError:
+            return False, "分组名称已存在"
+        except Exception as e:
+            return False, f"更新分组失败: {str(e)}"
+    
+    def delete_group(self, group_id):
+        """删除服务器分组（会清空该分组下服务器的分组归属）"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT name FROM server_groups WHERE id = ?', (group_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return False, "分组不存在"
+                cursor.execute('UPDATE servers SET server_group = "" WHERE server_group = ?', (row[0],))
+                cursor.execute('DELETE FROM server_groups WHERE id = ?', (group_id,))
+                conn.commit()
+                return True, "分组删除成功"
+        except Exception as e:
+            return False, f"删除分组失败: {str(e)}"
     
     def create_admin_user(self, username, password):
         """创建管理员用户"""
